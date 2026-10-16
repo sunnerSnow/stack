@@ -1,0 +1,258 @@
+@import "tailwindcss";
+
+/*
+ * STACK 品牌色只有四個：奶油白 #F5F0E5、深海軍藍 #173451、亮黃 #F5D548、青綠 #187F7C；
+ * 其餘是由這四色推出的深淺。損益色（台灣慣例：紅賺綠虧）只用在損益數字上。
+ */
+@theme {
+  --color-cream: #f5f0e5;
+  --color-paper: #fffdf8;
+  --color-ink: #173451;
+  --color-ink-2: #4a5f75;
+  --color-ink-3: #6b7c8f;
+  --color-line: #ddd5c4;
+  --color-sun: #f5d548;
+  --color-sun-ink: #5c4a00;
+  --color-sea: #187f7c;
+  --color-sea-dk: #10605d;
+  --color-gain: #a8232e;
+  --color-loss: #22703f;
+  --color-warn-bg: #fff4d6;
+  --color-warn: #6b4a00;
+  --color-danger: #a8232e;
+
+  --font-display: var(--font-unbounded), var(--font-noto-tc), sans-serif;
+  --font-sans: var(--font-noto-tc), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kicker::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    background: var(--color-ink);
+  }
+  .display {
+    font-family: var(--font-display);
+    font-weight: 900;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+  }
+
+  .panel {
+    background: var(--color-paper);
+    border: 2px solid var(--color-ink);
+    box-shadow: 4px 4px 0 var(--color-ink);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 2px solid var(--color-ink);
+  }
+  .panel-head h2 {
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: 0.04em;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 2px solid var(--color-ink);
+    padding: 8px 14px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--color-paper);
+    box-shadow: 3px 3px 0 var(--color-ink);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--color-ink);
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .btn-sun {
+    background: var(--color-sun);
+  }
+  .btn-ink {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    box-shadow: 3px 3px 0 var(--color-sea);
+  }
+  .btn-ink:hover:not(:disabled) {
+    box-shadow: 1px 1px 0 var(--color-sea);
+  }
+  .btn-quiet {
+    border-color: transparent;
+    box-shadow: none;
+    background: transparent;
+    padding-inline: 6px;
+  }
+  .btn-quiet:hover:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+    text-decoration: underline;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .field > span:not(.field-error) {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+  .field > span small {
+    font-weight: 400;
+    color: var(--color-ink-3);
+    margin-left: 4px;
+  }
+  .input {
+    border: 2px solid var(--color-ink);
+    background: var(--color-paper);
+    padding: 7px 10px;
+    font-size: 14px;
+    width: 100%;
+    min-width: 0;
+  }
+  .input:focus {
+    outline: 3px solid var(--color-sea);
+    outline-offset: 1px;
+  }
+  .input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+  .input.num {
+    font-family: var(--font-mono);
+    text-align: right;
+  }
+  .field-error {
+    font-size: 12px;
+    color: var(--color-danger);
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 表格設為定位基準：表格裡的 sr-only 文字（絕對定位）才會被外層的橫向捲動容器裁切，
+     否則它們以整頁為基準，會把手機版的頁面撐寬 */
+  .table {
+    position: relative;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .table th {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 2px solid var(--color-ink);
+    white-space: nowrap;
+  }
+  .table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-line);
+    vertical-align: top;
+  }
+  .table tr:last-child td {
+    border-bottom: 0;
+  }
+  .table .r {
+    text-align: right;
+  }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border: 1.5px solid var(--color-ink);
+    padding: 0 6px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+  .tag-sun {
+    background: var(--color-sun);
+  }
+  .tag-sea {
+    background: var(--color-sea);
+    color: var(--color-cream);
+    border-color: var(--color-sea);
+  }
+  .tag-warn {
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    border-style: dashed;
+  }
+
+  .notice {
+    border: 2px dashed var(--color-warn);
+    background: var(--color-warn-bg);
+    color: var(--color-warn);
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .alert {
+    border: 2px solid var(--color-danger);
+    background: #fdeceb;
+    color: var(--color-danger);
+    padding: 10px 14px;
+    font-size: 13.5px;
+  }
+  .success {
+    border: 2px solid var(--color-sea);
+    background: #e6f3f2;
+    color: var(--color-sea-dk);
+    padding: 10px 14px;
+    font-size: 13.5px;
+  }
+
+  .gain {
+    color: var(--color-gain);
+  }
+  .loss {
+    color: var(--color-loss);
+  }
+}

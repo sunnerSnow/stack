@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>樣式指南 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Style Guide</div>
+          <h1>洋流視覺方向</h1>
+          <p class="lead">深海藍承載結構與文字，海流青只用在資料與強調，霧白讓數字有呼吸空間。唯一數值來源：<code>design/assets/styles.css</code>。</p>
+        </div>
+        <div class="row">
+          <button class="btn btn-icon" type="button" data-toggle="theme" aria-label="切換深色模式"></button>
+          <button class="btn" type="button" data-toggle="convention"><span data-convention-label>紅賺綠虧</span></button>
+        </div>
+      </div>
+
+      <div class="grid grid-12">
+        <section class="card col-12">
+          <div class="card-head"><div><h2>色彩</h2><div class="hint">語意 token 一律引用原始色；元件不得直接寫色碼</div></div></div>
+          <div class="card-body">
+            <h3 class="mb-2">深海藍 Navy — 主色、側欄、主要文字</h3>
+            <div class="swatches mb-4">
+              <div class="sw"><div class="c" style="background:var(--navy-950)"></div><div class="m"><b>navy-950</b>#061A33</div></div>
+              <div class="sw"><div class="c" style="background:var(--navy-900)"></div><div class="m"><b>navy-900 · ink / primary</b>#0B2545</div></div>
+              <div class="sw"><div class="c" style="background:var(--navy-700)"></div><div class="m"><b>navy-700</b>#1E4675</div></div>
+              <div class="sw"><div class="c" style="background:var(--navy-500)"></div><div class="m"><b>navy-500 · chart-3</b>#4573A8</div></div>
+              <div class="sw"><div class="c" style="background:var(--navy-300)"></div><div class="m"><b>navy-300</b>#9DB7D4</div></div>
+              <div class="sw"><div class="c" style="background:var(--navy-200)"></div><div class="m"><b>navy-200 · info-bg</b>#C7D7E8</div></div>
+            </div>
+            <h3 class="mb-2">海流青 Current — 資料強調、圖表、主按鈕（海流青文字版才能當文字）</h3>
+            <div class="swatches mb-4">
+              <div class="sw"><div class="c" style="background:var(--current-700)"></div><div class="m"><b>current-700 · accent-ink</b>#0C6B6B</div></div>
+              <div class="sw"><div class="c" style="background:var(--current-500)"></div><div class="m"><b>current-500 · accent</b>#139A9A</div></div>
+              <div class="sw"><div class="c" style="background:var(--current-400)"></div><div class="m"><b>current-400</b>#2EB8B5</div></div>
+              <div class="sw"><div class="c" style="background:var(--current-300)"></div><div class="m"><b>current-300</b>#6FD3CF</div></div>
+              <div class="sw"><div class="c" style="background:var(--current-200)"></div><div class="m"><b>current-200</b>#B7EAE7</div></div>
+              <div class="sw"><div class="c" style="background:var(--current-100)"></div><div class="m"><b>current-100 · accent-soft</b>#E1F6F4</div></div>
+            </div>
+            <h3 class="mb-2">霧白 Mist — 頁面底、分隔線、次要文字</h3>
+            <div class="swatches mb-4">
+              <div class="sw"><div class="c" style="background:var(--mist-50)"></div><div class="m"><b>mist-50</b>#FBFCFD</div></div>
+              <div class="sw"><div class="c" style="background:var(--mist-100)"></div><div class="m"><b>mist-100 · bg</b>#F5F8FA</div></div>
+              <div class="sw"><div class="c" style="background:var(--mist-200)"></div><div class="m"><b>mist-200 · surface-2</b>#EAF0F4</div></div>
+              <div class="sw"><div class="c" style="background:var(--mist-300)"></div><div class="m"><b>mist-300 · line</b>#DCE5EB</div></div>
+              <div class="sw"><div class="c" style="background:var(--mist-400)"></div><div class="m"><b>mist-400 · line-strong</b>#C5D2DB</div></div>
+              <div class="sw"><div class="c" style="background:var(--mist-600)"></div><div class="m"><b>mist-600</b>#67798A</div></div>
+            </div>
+            <h3 class="mb-2">損益與狀態 — 顏色之外一律帶 +／− 與文字</h3>
+            <div class="swatches">
+              <div class="sw"><div class="c" style="background:var(--c-red)"></div><div class="m"><b>c-red（台灣慣例＝賺）</b>#A8232E · 6.4:1</div></div>
+              <div class="sw"><div class="c" style="background:var(--c-green)"></div><div class="m"><b>c-green（台灣慣例＝虧）</b>#22703F · 5.6:1</div></div>
+              <div class="sw"><div class="c" style="background:var(--amber-700)"></div><div class="m"><b>warn · 部分／估算</b>#8A5A00</div></div>
+              <div class="sw"><div class="c" style="background:var(--mock-bg);border-bottom:1px dashed var(--mock-line)"></div><div class="m"><b>mock · 示意資料</b>#FFF4D6 / #6B4A00</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card col-6">
+          <div class="card-head"><div><h2>字體</h2><div class="hint">IBM Plex Sans ＋ Noto Sans TC；數字一律 IBM Plex Mono、tabular-nums</div></div></div>
+          <div class="card-body">
+            <div class="type-sample"><span class="k">h1 · 22 / 600</span><h1>先看整體淨值，再看單一持倉</h1></div>
+            <div class="type-sample"><span class="k">h2 · 16 / 600</span><h2>TWR 累積報酬 vs 基準</h2></div>
+            <div class="type-sample"><span class="k">body · 14 / 400</span><p>快照模式下若成本資料缺漏，應顯示「成本未完整」及可計算指標，不得把空值當成零。</p></div>
+            <div class="type-sample"><span class="k">small · 12 / ink-3</span><p class="small muted">價格日期 2026-10-16 · 匯率 USD/TWD 32.18 · 計算版本 v3</p></div>
+            <div class="type-sample"><span class="k">kpi xl · mono 38 / 500</span><div class="kpi-value xl"><span class="cur">NT$</span>4,862,310</div></div>
+            <div class="type-sample"><span class="k">pnl · mono 14</span><div><span class="pnl up">+23,410<span class="lbl">今日</span></span> &nbsp; <span class="pnl down">−1.8%</span> &nbsp; <span class="pnl flat">0.0%</span></div></div>
+            <div class="type-sample"><span class="k">eyebrow · 11 / 0.12em</span><div class="eyebrow">Market Current</div></div>
+          </div>
+        </section>
+
+        <section class="card col-6">
+          <div class="card-head"><div><h2>標籤與狀態</h2><div class="hint">資料完整度、估算、示意資料的固定寫法</div></div></div>
+          <div class="card-body stack" style="gap:14px">
+            <div class="row" style="flex-wrap:wrap"><span class="tag ok">完整</span><span class="tag warn">部分</span><span class="tag">stale · 過期</span><span class="tag err">缺漏</span><span class="tag est">估算</span><span class="tag mock">示意資料</span><span class="tag info">半導體</span><span class="tag up"><i class="dot"></i>資金流入</span><span class="tag down"><i class="dot"></i>資金轉弱</span></div>
+            <div class="row" style="flex-wrap:wrap"><button class="btn btn-primary" type="button">主要動作</button><button class="btn btn-accent" type="button">海流青強調</button><button class="btn" type="button">次要</button><button class="btn btn-ghost" type="button">文字</button><button class="btn btn-danger" type="button">危險</button><button class="btn" type="button" disabled>停用</button></div>
+            <div class="row" style="flex-wrap:wrap"><button class="chip" aria-pressed="true" type="button">全部帳戶</button><button class="chip" aria-pressed="false" type="button">台股</button><div class="tabs"><button aria-selected="true">YTD</button><button aria-selected="false">1Y</button><button aria-selected="false">ALL</button></div></div>
+            <div class="notice warn"><span data-ico="alert"></span><span>警示：匯率缺漏時估值標示 partial，並列出缺漏項目；不可靜默填 1。</span></div>
+            <div class="notice info"><span data-ico="info"></span><span>資訊：XIRR 無解或資料不足時顯示「無法計算」與原因，不回傳 0。</span></div>
+            <div class="form-grid">
+              <div class="field"><label for="f1">數量</label><input id="f1" class="input num" value="1,000"><span class="help">輸入框內數字靠右、等寬字</span></div>
+              <div class="field"><label for="f2">金額</label><div class="input-group"><input id="f2" class="input num" value="10,020"><span class="suffix">TWD</span></div><span class="error">金額不可為負</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card col-12">
+          <div class="card-head"><div><h2>版面原則</h2></div></div>
+          <div class="card-body">
+            <dl class="spec" style="grid-template-columns:200px 1fr">
+              <dt>首屏</dt><dd>總淨值用一個大面板分區呈現（淨值／累計損益／XIRR／TWR），底部一條資料完整度帶；不要把每個指標都做成卡片。</dd>
+              <dt>側欄</dt><dd>深海藍漸層，固定 232px；啟用項目左側 3px 海流青指示條。平板以下收成頂列。</dd>
+              <dt>圖表</dt><dd>折線為主：淨值用深海藍線＋海流青面積，基準用灰色虛線，資料缺漏區段用琥珀點線＋淺色底帶。顏色之外以線型、文字、圖例區分。</dd>
+              <dt>市場洋流</dt><dd>只有這一區用深海漸層頁首與流線裝飾。資金流入用海流青由淺到深，流出用霧白到深海藍。</dd>
+              <dt>表格</dt><dd>數字欄靠右、等寬、tabular-nums；每列附價格日期與完整度標籤；成本未填顯示「未填」，不顯示 0。</dd>
+              <dt>圓角與陰影</dt><dd>卡片 12px、按鈕 8px；陰影極淡，依賴 1px 分隔線建立層次。</dd>
+              <dt>動效</dt><dd>150 ms 的 hover 與切換；不做進場動畫；尊重 prefers-reduced-motion。</dd>
+              <dt>示意資料</dt><dd>每頁頂部一條示意資料公告，圖表與表格頁尾再標一次。</dd>
+            </dl>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'settings', crumbs: ['洋流', '設定', '樣式指南'] });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+</script>
+</body>
+</html>

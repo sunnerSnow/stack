@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>洋流 Capital Current — 首頁原型 A：深海洋流</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Geist:wght@200;300;400;500&family=Noto+Serif+TC:wght@400;600&family=Noto+Sans+TC:wght@300;400;500&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  /* 原型 A：參考神戶大學循環器內科首頁的「粒子心臟＋心電圖＋網點進場」，換成洋流語彙
+   * 粒子心臟 → 洋流粒子流場（canvas 2D）
+   * 心電圖   → 潮汐線（資金脈衝）
+   * 網點進場 → CAPITAL CURRENT 以網點浮現
+   * 色彩沿用 design/assets/styles.css 的深海藍／海流青／霧白 */
+  :root {
+    --navy-950: #061A33; --navy-900: #0B2545; --navy-700: #1E4675; --navy-500: #4573A8; --navy-300: #9DB7D4;
+    --current-500: #139A9A; --current-400: #2EB8B5; --current-300: #6FD3CF; --current-200: #B7EAE7;
+    --mist-100: #F5F8FA; --mist-300: #DCE5EB;
+    --ink: #0B2545; --ink-3: #5F7389;
+    --serif-en: 'Bodoni Moda', 'Didot', serif;
+    --sans-en: 'Geist', 'IBM Plex Sans', sans-serif;
+    --serif-tc: 'Noto Serif TC', serif;
+    --sans-tc: 'Noto Sans TC', sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--navy-950); color: #E6EEF6; font-family: var(--sans-en), var(--sans-tc); font-weight: 300; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ---- 進場：網點浮現 ---- */
+  .loader { position: fixed; inset: 0; z-index: 50; background: var(--navy-950); display: grid; place-items: center; transition: opacity 700ms ease 100ms, visibility 0s 900ms; }
+  .loader.done { opacity: 0; visibility: hidden; }
+  .loader .word {
+    font-family: var(--serif-en); font-size: clamp(40px, 9vw, 128px); letter-spacing: 0.02em; color: #FFFFFF; line-height: 1; white-space: nowrap;
+    -webkit-mask-image: radial-gradient(circle, #000 var(--r, 0px), transparent calc(var(--r, 0px) + 0.6px));
+    mask-image: radial-gradient(circle, #000 var(--r, 0px), transparent calc(var(--r, 0px) + 0.6px));
+    -webkit-mask-size: 14px 14px; mask-size: 14px 14px;
+    filter: drop-shadow(0 0 24px rgba(46, 184, 181, 0.35));
+  }
+  .loader .halo { position: absolute; width: 60vmin; height: 60vmin; border-radius: 50%; background: radial-gradient(circle, rgba(69, 115, 168, 0.45), transparent 60%); animation: halo 1.6s ease-out forwards; }
+  @keyframes halo { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* ---- 導覽 ---- */
+  .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; padding: 22px 40px; transition: background 300ms ease, padding 300ms ease; }
+  /* 捲離首屏後補一層深海底，經過霧白的模組區時才看得到 */
+  .nav.scrolled { background: rgba(6, 26, 51, 0.82); backdrop-filter: blur(10px); padding-top: 14px; padding-bottom: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand svg { width: 30px; height: 30px; }
+  .brand b { font-family: var(--sans-tc); font-weight: 500; font-size: 15px; letter-spacing: 0.1em; }
+  .brand small { display: block; font-family: var(--sans-en); font-weight: 300; font-size: 9.5px; letter-spacing: 0.22em; color: var(--navy-300); text-transform: uppercase; }
+  .links { display: flex; gap: 32px; font-size: 13px; letter-spacing: 0.06em; color: var(--navy-300); font-weight: 400; }
+  .links a:hover { color: #FFFFFF; }
+  .cta { border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 999px; padding: 10px 20px; font-size: 13px; letter-spacing: 0.06em; color: #FFFFFF; background: rgba(19, 154, 154, 0.18); backdrop-filter: blur(6px); transition: background 200ms ease; }
+  .cta:hover { background: rgba(19, 154, 154, 0.4); }
+
+  /* ---- Hero ---- */
+  .hero { position: relative; min-height: 100vh; overflow: hidden; background: radial-gradient(120% 90% at 80% 20%, #163A6B 0%, var(--navy-900) 40%, var(--navy-950) 100%); }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero .light { position: absolute; inset: 0; background: radial-gradient(60% 50% at 62% 48%, rgba(46, 184, 181, 0.18), transparent 70%); pointer-events: none; }
+  .hero .inner { position: relative; z-index: 2; min-height: 100vh; display: grid; grid-template-rows: 1fr auto; padding: 120px 60px 170px; }
+  .hero h1 { margin: 0; align-self: center; }
+  .hero .sub { display: block; font-family: var(--serif-en); font-weight: 400; font-size: clamp(16px, 2.2vw, 30px); letter-spacing: 0.26em; color: #DCE5EB; }
+  .hero .tit { display: block; font-family: var(--serif-en); font-weight: 400; font-size: clamp(56px, 10.5vw, 150px); line-height: 0.95; letter-spacing: 0.01em; color: #FFFFFF; margin-top: 6px; }
+  .hero .tit i { font-style: italic; color: var(--current-300); }
+  .hero .foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; flex-wrap: wrap; }
+  .hero .ja { font-family: var(--serif-tc); font-size: clamp(20px, 2.4vw, 30px); font-weight: 600; color: #FFFFFF; letter-spacing: 0.08em; }
+  .hero .desc { max-width: 520px; font-size: 13.5px; color: var(--navy-300); font-family: var(--sans-tc); line-height: 1.9; text-align: right; }
+  .hero .desc b { color: #FFFFFF; font-weight: 400; }
+  .scroll-hint { position: absolute; left: 60px; bottom: 120px; z-index: 2; font-size: 10.5px; letter-spacing: 0.3em; color: var(--navy-300); text-transform: uppercase; writing-mode: vertical-rl; }
+  .scroll-hint::after { content: ''; display: block; width: 1px; height: 48px; margin: 10px auto 0; background: linear-gradient(var(--current-400), transparent); animation: drip 1.8s ease-in-out infinite; }
+  @keyframes drip { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+
+  /* ---- 潮汐線（取代心電圖）：資金脈衝 ---- */
+  .tide { position: absolute; left: 0; right: 0; bottom: 28px; height: 90px; z-index: 2; pointer-events: none; }
+  .tide svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tide .base { stroke: rgba(157, 183, 212, 0.35); }
+  .tide .glow { stroke: var(--current-300); filter: drop-shadow(0 0 6px rgba(111, 211, 207, 0.9)); }
+  .tide .win { animation: sweep 7s linear infinite; }
+  @keyframes sweep { from { transform: translateX(-30%); } to { transform: translateX(100%); } }
+  .tide-label { position: absolute; right: 60px; bottom: 112px; z-index: 2; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; color: var(--navy-300); }
+  .tide-label i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--current-400); margin-right: 8px; box-shadow: 0 0 8px var(--current-400); }
+
+  /* ---- 內容區 ---- */
+  .section { position: relative; padding: 140px 60px; }
+  .section .eyebrow { font-family: var(--serif-en); font-size: clamp(34px, 5vw, 64px); font-weight: 400; color: #FFFFFF; line-height: 1; margin: 0; }
+  .section .eyebrow i { font-style: italic; color: var(--current-300); }
+  .section .ja-tit { font-family: var(--serif-tc); font-size: clamp(22px, 2.6vw, 34px); font-weight: 600; color: #FFFFFF; margin: 18px 0 0; letter-spacing: 0.06em; }
+  .section p.body { font-family: var(--sans-tc); font-size: 15px; line-height: 2.1; color: var(--navy-300); max-width: 60ch; margin: 26px 0 0; }
+  .section p.body b { color: #FFFFFF; font-weight: 400; }
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 700ms ease, transform 700ms ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  .concept { background: linear-gradient(180deg, var(--navy-950), #081F3C); }
+  .concept .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; align-items: center; }
+  .concept .ring { position: relative; width: 100%; aspect-ratio: 1; max-width: 520px; margin-left: auto; }
+  .concept .ring svg { display: block; width: 100%; height: 100%; }
+  .concept .ring text { font-family: var(--sans-tc); font-size: 13px; fill: #FFFFFF; letter-spacing: 0.08em; }
+  .concept .ring .en { font-family: var(--sans-en); font-size: 9px; fill: var(--navy-300); letter-spacing: 0.18em; text-transform: uppercase; }
+  .concept .ring .orbit { fill: none; stroke: rgba(157, 183, 212, 0.4); stroke-dasharray: 2 6; }
+  .concept .ring .flow { fill: none; stroke: var(--current-400); stroke-width: 1.6; stroke-dasharray: 160 420; animation: orbit 9s linear infinite; }
+  @keyframes orbit { to { stroke-dashoffset: -580; } }
+
+  .modules { background: var(--mist-100); color: var(--ink); }
+  .modules .eyebrow, .modules .ja-tit { color: var(--ink); }
+  .modules .eyebrow i { color: #0C6B6B; }
+  .modules p.body { color: var(--ink-3); }
+  .modules p.body b { color: var(--ink); }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-top: 64px; background: var(--mist-300); border: 1px solid var(--mist-300); }
+  .card { background: #FFFFFF; padding: 36px 32px 40px; min-height: 340px; display: flex; flex-direction: column; transition: background 300ms ease; }
+  .card:hover { background: #F0FAF9; }
+  .card .num { font-family: var(--serif-en); font-size: 44px; color: #0C6B6B; line-height: 1; }
+  .card h3 { font-family: var(--sans-tc); font-weight: 500; font-size: 20px; margin: 22px 0 4px; letter-spacing: 0.04em; }
+  .card .en { font-family: var(--sans-en); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); }
+  .card p { font-family: var(--sans-tc); font-size: 14px; line-height: 1.9; color: var(--ink-3); margin: 18px 0 0; flex: 1; }
+  .card .more { font-family: var(--sans-en); font-size: 12px; letter-spacing: 0.14em; color: #0C6B6B; margin-top: 24px; }
+  .card .more::after { content: ' →'; }
+
+  .proof { background: var(--navy-900); }
+  .proof .wrap { display: grid; grid-template-columns: 1fr 1.4fr; gap: 60px; align-items: center; }
+  .proof .frame { border: 1px solid rgba(157, 183, 212, 0.25); border-radius: 12px; overflow: hidden; box-shadow: 0 40px 80px rgba(0, 0, 0, 0.45); background: var(--mist-100); aspect-ratio: 16 / 10; position: relative; }
+  .proof iframe { width: 1440px; height: 900px; border: 0; transform: scale(0.5); transform-origin: 0 0; position: absolute; }
+  .proof .frame::after { content: '示意資料'; position: absolute; top: 12px; right: 12px; font-family: var(--sans-tc); font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #FFF4D6; color: #6B4A00; border: 1px dashed #F2C86B; }
+  .principles { margin: 32px 0 0; padding: 0; list-style: none; display: grid; gap: 14px; font-family: var(--sans-tc); font-size: 14px; color: var(--navy-300); }
+  .principles li { padding-left: 22px; position: relative; }
+  .principles li::before { content: ''; position: absolute; left: 0; top: 9px; width: 10px; height: 1px; background: var(--current-400); }
+  .principles b { color: #FFFFFF; font-weight: 400; }
+
+  .end { background: var(--navy-950); text-align: center; padding: 160px 60px; }
+  .end .tit { font-family: var(--serif-en); font-size: clamp(40px, 7vw, 96px); color: #FFFFFF; line-height: 1; margin: 0; }
+  .end .tit i { font-style: italic; color: var(--current-300); }
+  .end .ja { font-family: var(--serif-tc); font-size: 20px; color: var(--navy-300); margin: 20px 0 40px; }
+  .end .cta { display: inline-block; padding: 16px 36px; font-size: 14px; }
+  footer { padding: 40px 60px; font-size: 11.5px; color: var(--navy-300); letter-spacing: 0.08em; display: flex; justify-content: space-between; border-top: 1px solid rgba(157, 183, 212, 0.15); font-family: var(--sans-tc); }
+
+  @media (max-width: 900px) {
+    .nav { padding: 16px 20px; } .links { display: none; }
+    .hero .inner { padding: 110px 20px 160px; }
+    .hero .desc { text-align: left; }
+    .hero .desc br { display: none; }
+    .scroll-hint { display: none; }
+    .section { padding: 90px 20px; }
+    .concept .grid, .proof .wrap { grid-template-columns: 1fr; gap: 40px; }
+    .concept .ring { margin: 0 auto; }
+    .cards { grid-template-columns: 1fr; }
+    .proof iframe { transform: scale(0.25); } .proof .frame { aspect-ratio: 16 / 10; }
+    .tide-label { right: 20px; }
+    footer { flex-direction: column; gap: 8px; padding: 30px 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loader { display: none; }
+    .tide .win, .concept .ring .flow, .scroll-hint::after, .loader .halo { animation: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="loader" id="loader" aria-hidden="true">
+  <div class="halo"></div>
+  <div class="word" id="loaderWord">CAPITAL CURRENT</div>
+</div>
+
+<nav class="nav">
+  <a class="brand" href="#">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#139A9A"/><path d="M6 12c3-3 5-3 8 0s5 3 8 0 3-2 4-1" fill="none" stroke="#061A33" stroke-width="2.2" stroke-linecap="round"/><path d="M6 18c3-3 5-3 8 0s5 3 8 0 3-2 4-1" fill="none" stroke="#E6EEF6" stroke-width="2.2" stroke-linecap="round"/><path d="M6 24c3-3 5-3 8 0s5 3 8 0 3-2 4-1" fill="none" stroke="#061A33" stroke-width="2.2" stroke-linecap="round" opacity=".55"/></svg>
+    <span><b>洋流</b><small>Capital Current</small></span>
+  </a>
+  <div class="links"><a href="#concept">Concept</a><a href="#modules">Modules</a><a href="#proof">Product</a><a href="index.html">Demo</a><a href="landing-b.html">原型 B</a></div>
+  <a class="cta" href="index.html">開始使用</a>
+</nav>
+
+<header class="hero">
+  <canvas id="flow" aria-hidden="true"></canvas>
+  <div class="light"></div>
+  <div class="inner">
+    <h1>
+      <span class="sub">CAPITAL</span>
+      <span class="tit">CURRENT<i>.</i></span>
+    </h1>
+    <div class="foot">
+      <div class="ja">看見資金的流向，<br>也看見自己的位置。</div>
+      <p class="desc">市場資金像洋流，不停流動、改變方向。<br>洋流把<b>產業資金動能</b>、<b>你的淨值與績效</b>、<b>AI 研究</b>放在同一個座標系，<br>讓每一個判斷都能追溯到資料與來源。</p>
+    </div>
+  </div>
+  <div class="scroll-hint">Scroll</div>
+  <div class="tide-label"><i></i>MARKET CURRENT · 示意資料</div>
+  <div class="tide" aria-hidden="true">
+    <svg viewBox="0 0 1600 90" preserveAspectRatio="none">
+      <defs><clipPath id="win"><rect class="win" x="0" y="0" width="30%" height="90"/></clipPath></defs>
+      <path class="base" id="tideBase" fill="none" stroke-width="1"/>
+      <g clip-path="url(#win)"><path class="glow" id="tideGlow" fill="none" stroke-width="1.4"/></g>
+    </svg>
+  </div>
+</header>
+
+<section class="section concept" id="concept">
+  <div class="grid">
+    <div class="reveal">
+      <h2 class="eyebrow">Follow the <i>current</i></h2>
+      <p class="ja-tit">市場洋流，不是買賣訊號，是研究線索。</p>
+      <p class="body">法人買賣超、產業資金動能、個股相對強度，這些都是海面下的流向。<b>洋流把它們和你的持倉接在一起</b>：你有 38% 曝險在半導體，這個產業近 10 日的資金指標正在轉弱。<br>每一則提示都附上指標定義、資料日期、來源與不確定性。<b>資金流入不等於買進訊號</b>，我們不會把相關性寫成因果。</p>
+    </div>
+    <div class="ring reveal">
+      <svg viewBox="0 0 520 520" aria-label="三個模組的關係圖">
+        <circle class="orbit" cx="260" cy="260" r="200"/>
+        <circle class="flow" cx="260" cy="260" r="200"/>
+        <circle class="orbit" cx="260" cy="260" r="120"/>
+        <!-- 三個節點等分落在外圈（r=200）上：0°、120°、240° -->
+        <g text-anchor="middle">
+          <text x="260" y="22" class="en">Market Current</text><text x="260" y="44">市場洋流</text>
+          <text x="87" y="392" class="en">Portfolio</text><text x="87" y="414">個人資產</text>
+          <text x="433" y="392" class="en">Intelligence</text><text x="433" y="414">AI 研究</text>
+          <text x="260" y="252" class="en">Your position</text><text x="260" y="276" style="font-size:16px">你的座標</text>
+        </g>
+        <circle cx="260" cy="60" r="4" fill="#2EB8B5"/><circle cx="86.8" cy="360" r="4" fill="#2EB8B5"/><circle cx="433.2" cy="360" r="4" fill="#2EB8B5"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<section class="section modules" id="modules">
+  <div class="reveal">
+    <h2 class="eyebrow">Three <i>modules</i>, one coordinate</h2>
+    <p class="ja-tit">個人績效 × 市場洋流 × AI 研究</p>
+  </div>
+  <div class="cards">
+    <article class="card reveal">
+      <div class="num">01</div>
+      <h3>市場洋流</h3><div class="en">Market Current</div>
+      <p>產業／族群資金動能、法人買賣超、個股強度與產業輪動。每一個指標都顯示資料日期、來源與延遲狀態。</p>
+      <a class="more" href="market.html">View Market</a>
+    </article>
+    <article class="card reveal">
+      <div class="num">02</div>
+      <h3>個人資產</h3><div class="en">Portfolio</div>
+      <p>多投資組合、多帳戶。想逐筆記錄就逐筆，不想補登歷史就只更新庫存快照。淨值、XIRR、TWR 都可解釋、可追溯。</p>
+      <a class="more" href="index.html">View Dashboard</a>
+    </article>
+    <article class="card reveal">
+      <div class="num">03</div>
+      <h3>AI 研究</h3><div class="en">Intelligence</div>
+      <p>把你的持倉和產業、新聞、技術指標關聯起來。每個結論都標示資料時間、來源與不確定性，不把推論寫成事實。</p>
+      <a class="more" href="asset.html">View Research</a>
+    </article>
+  </div>
+</section>
+
+<section class="section proof" id="proof">
+  <div class="wrap">
+    <div class="reveal">
+      <h2 class="eyebrow">Honest <i>numbers</i></h2>
+      <p class="ja-tit">資料缺漏必須明確顯示，不得假裝精準。</p>
+      <ul class="principles">
+        <li><b>先看整體淨值</b>，再看單一持倉。</li>
+        <li>匯率缺漏標示 partial，<b>不會靜默填 1</b>。</li>
+        <li>XIRR 無解就寫「無法計算」與原因，<b>不回傳 0</b>。</li>
+        <li>快照模式缺成本就顯示「成本未完整」，<b>不把空值當 0</b>。</li>
+        <li>每一個 AI 結論都能<b>追溯到資料與來源</b>。</li>
+      </ul>
+    </div>
+    <div class="frame reveal"><iframe src="index.html" title="總覽設計稿預覽" loading="lazy" tabindex="-1"></iframe></div>
+  </div>
+</section>
+
+<section class="end">
+  <h2 class="tit">Find your <i>position</i>.</h2>
+  <p class="ja">從你的第一個投資組合開始。</p>
+  <a class="cta" href="index.html">開始使用</a>
+</section>
+<footer><span>洋流 Capital Current · 首頁原型 A（深海洋流）</span><span>本頁所有數字皆為示意資料</span></footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* 進場：網點半徑由 0 長到 10px，再淡出 */
+  var loader = document.getElementById('loader'), word = document.getElementById('loaderWord');
+  if (reduce) { loader.classList.add('done'); }
+  else {
+    /* 保險：分頁在背景載入時 rAF 不會跑，最多 2.5 秒也要讓出畫面 */
+    setTimeout(function () { loader.classList.add('done'); }, 2500);
+    var t0 = null;
+    function step(ts) {
+      if (!t0) t0 = ts;
+      var p = Math.min(1, (ts - t0) / 1300), e = 1 - Math.pow(1 - p, 3);
+      word.style.setProperty('--r', (e * 10).toFixed(2) + 'px');
+      if (p < 1) requestAnimationFrame(step); else setTimeout(function () { loader.classList.add('done'); }, 350);
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* 洋流粒子流場：粒子沿著緩慢變化的向量場漂流，留下拖尾 */
+  var cv = document.getElementById('flow'), ctx = cv.getContext('2d'), W, H, parts = [], N = 1400, t = 0;
+  function resize() { W = cv.width = cv.clientWidth * devicePixelRatio; H = cv.height = cv.clientHeight * devicePixelRatio; ctx.fillStyle = 'rgba(6,26,51,1)'; ctx.fillRect(0, 0, W, H); }
+  function field(x, y, t) {
+    var nx = x / W, ny = y / H;
+    var a = Math.sin(nx * 4.2 + t * 0.35) * Math.cos(ny * 3.1 - t * 0.21)
+          + 0.6 * Math.sin((nx + ny) * 6.0 + t * 0.5)
+          + 0.35 * Math.cos(nx * 9 - ny * 7 + t * 0.3);
+    return a * 1.9 + 0.15; /* 整體向右漂，像洋流 */
+  }
+  function spawn(p) {
+    /* 集中在畫面中偏右的橢圓帶，像神戶那顆心臟的位置 */
+    var ang = Math.random() * Math.PI * 2, r = Math.pow(Math.random(), 0.6);
+    p.x = W * 0.62 + Math.cos(ang) * r * W * 0.30; p.y = H * 0.5 + Math.sin(ang) * r * H * 0.38;
+    p.life = 80 + Math.random() * 220; p.hue = Math.random();
+    p.spd = 0.6 + Math.random() * 1.1;
+  }
+  resize(); window.addEventListener('resize', resize);
+  for (var i = 0; i < N; i++) { var p = {}; spawn(p); p.life *= Math.random(); parts.push(p); }
+  function frame() {
+    t += 0.016;
+    ctx.fillStyle = 'rgba(6,26,51,0.08)'; ctx.fillRect(0, 0, W, H);
+    ctx.lineWidth = devicePixelRatio;
+    for (var i = 0; i < N; i++) {
+      var p = parts[i], a = field(p.x, p.y, t);
+      var nx = p.x + Math.cos(a) * p.spd * devicePixelRatio * 1.6, ny = p.y + Math.sin(a) * p.spd * devicePixelRatio * 1.6;
+      var cx = (p.x - W * 0.62) / (W * 0.34), cy = (p.y - H * 0.5) / (H * 0.42), d = cx * cx + cy * cy;
+      var alpha = Math.max(0, 1 - d) * 0.9;
+      ctx.strokeStyle = p.hue < 0.55 ? 'rgba(111,211,207,' + alpha + ')' : p.hue < 0.85 ? 'rgba(230,238,246,' + alpha * 0.8 + ')' : 'rgba(199,180,232,' + alpha * 0.8 + ')';
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
+      p.x = nx; p.y = ny; p.life--;
+      if (p.life <= 0 || d > 1.3 || p.x < 0 || p.x > W || p.y < 0 || p.y > H) spawn(p);
+    }
+    if (!reduce) requestAnimationFrame(frame);
+  }
+  if (reduce) { for (var k = 0; k < 90; k++) frame(); } else frame();
+
+  /* 潮汐線：平緩波＋不規則的資金脈衝 */
+  var d = '', x = 0, seg = 0, r = 7;
+  function rnd() { r = (r * 1664525 + 1013904223) % 4294967296; return r / 4294967296; }
+  while (x < 1600) {
+    var base = 60 + Math.sin(x / 90) * 4;
+    if (seg === 0) { d += 'M0 ' + base; }
+    if (rnd() < 0.12 && x > 40) {
+      var h = 18 + rnd() * 34, w = 14 + rnd() * 10;
+      d += ' L' + (x + w * 0.3) + ' ' + (base + 4) + ' L' + (x + w * 0.5) + ' ' + (base - h) + ' L' + (x + w * 0.7) + ' ' + (base + 10) + ' L' + (x + w) + ' ' + base;
+      x += w;
+    } else { x += 10; d += ' L' + x + ' ' + (60 + Math.sin(x / 90) * 4); }
+    seg++;
+  }
+  document.getElementById('tideBase').setAttribute('d', d);
+  document.getElementById('tideGlow').setAttribute('d', d);
+
+  /* 導覽列：離開首屏頂端就加底色 */
+  var nav = document.querySelector('.nav');
+  function onScroll() { nav.classList.toggle('scrolled', window.scrollY > 40); }
+  window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  /* 捲動浮現 */
+  var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: 0.15 });
+  document.querySelectorAll('.reveal').forEach(function (el, i) { el.style.transitionDelay = (i % 3) * 90 + 'ms'; io.observe(el); });
+})();
+</script>
+</body>
+</html>

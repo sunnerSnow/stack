@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>持倉 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <div class="mock-banner"><span class="tag">示意資料</span>代號、數量、價格與洋流狀態皆為版面示意。</div>
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">My Assets</div>
+          <h1>持倉</h1>
+          <p class="lead">依市值排序。每列標示價格日期、資料完整度與所屬產業的洋流狀態。</p>
+        </div>
+        <div class="row">
+          <a class="btn" href="import.html"><span data-ico="upload"></span>匯入 CSV</a>
+          <a class="btn" href="snapshot.html"><span data-ico="pen"></span>快速更新庫存</a>
+          <button class="btn btn-primary" type="button"><span data-ico="plus"></span>新增交易</button>
+        </div>
+      </div>
+
+      <nav class="subnav" aria-label="我的資產">
+        <a href="index.html#networth">淨值儀表板</a>
+        <a href="holdings.html" aria-current="page">持倉</a>
+        <a href="#">帳戶</a>
+        <a href="#">交易紀錄</a>
+        <a href="#">股息</a>
+        <a href="import.html">匯入中心</a>
+      </nav>
+
+      <div class="stat-row mb-4">
+        <div><div class="kpi-label">證券市值</div><div class="kpi-value">4,250,310</div><div class="kpi-sub">TWD · 14 檔</div></div>
+        <div><div class="kpi-label">剩餘持倉成本</div><div class="kpi-value">3,859,050</div><div class="kpi-sub"><span class="tag warn">3 檔成本未完整</span></div></div>
+        <div><div class="kpi-label">未實現損益</div><div class="kpi-value pnl up">+391,260</div><div class="kpi-sub"><span class="pnl up">+10.1%</span>（僅含成本完整者）</div></div>
+        <div><div class="kpi-label">今日變化</div><div class="kpi-value pnl up">+23,410</div><div class="kpi-sub"><span class="pnl up">+0.55%</span></div></div>
+        <div><div class="kpi-label">現金</div><div class="kpi-value">612,000</div><div class="kpi-sub">TWD 348,100 · USD 8,200</div></div>
+      </div>
+
+      <section class="card flush">
+        <div class="table-toolbar">
+          <label class="search"><span data-ico="search"></span><input type="search" placeholder="搜尋代號或名稱" aria-label="搜尋持倉"></label>
+          <button class="chip" aria-pressed="true" type="button">全部帳戶</button>
+          <button class="chip" aria-pressed="false" type="button">台股</button>
+          <button class="chip" aria-pressed="false" type="button">美股</button>
+          <button class="chip" aria-pressed="false" type="button">ETF</button>
+          <span class="spacer"></span>
+          <label class="switch"><input type="checkbox"><span class="track"></span>依帳戶分組</label>
+          <button class="btn btn-sm" type="button"><span data-ico="download"></span>匯出</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>資產</th>
+                <th>帳戶</th>
+                <th class="num">數量</th>
+                <th class="num">最新價</th>
+                <th class="num">市值 TWD <svg class="sort" viewBox="0 0 10 10"><path d="M5 8L1 3h8z" fill="currentColor"/></svg></th>
+                <th class="num">成本</th>
+                <th class="num">未實現損益</th>
+                <th class="num">今日</th>
+                <th>30 日</th>
+                <th>產業 · 洋流</th>
+                <th>完整度</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a class="name" href="asset.html">台積電</a><span class="sub"><span class="sym">2330</span> · TW · 股票</span></td>
+                <td>永豐 A<span class="sub">逐筆</span></td>
+                <td class="num">1,000</td>
+                <td class="num">1,085.00<span class="sub">10-16 13:30</span></td>
+                <td class="num">1,085,000</td>
+                <td class="num">862,400<span class="sub">862.40 / 股</span></td>
+                <td class="num"><span class="pnl up">+222,600</span><span class="sub pnl up">+25.8%</span></td>
+                <td class="num"><span class="pnl up">+1.4%</span></td>
+                <td data-spark="1"></td>
+                <td><span class="tag info">半導體</span> <span class="tag down"><i class="dot"></i>資金轉弱</span></td>
+                <td><span class="tag ok">完整</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">聯發科</a><span class="sub"><span class="sym">2454</span> · TW · 股票</span></td>
+                <td>永豐 A<span class="sub">逐筆</span></td>
+                <td class="num">300</td>
+                <td class="num">1,420.00<span class="sub">10-16 13:30</span></td>
+                <td class="num">426,000</td>
+                <td class="num">401,100</td>
+                <td class="num"><span class="pnl up">+24,900</span><span class="sub pnl up">+6.2%</span></td>
+                <td class="num"><span class="pnl down">−0.7%</span></td>
+                <td data-spark="2"></td>
+                <td><span class="tag info">半導體</span> <span class="tag down"><i class="dot"></i>資金轉弱</span></td>
+                <td><span class="tag ok">完整</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">Vanguard S&P 500 ETF</a><span class="sub"><span class="sym">VOO</span> · US · ETF</span></td>
+                <td>Firstrade<span class="sub">逐筆</span></td>
+                <td class="num">60</td>
+                <td class="num">USD 548.20<span class="sub">10-15 收盤</span></td>
+                <td class="num">1,058,490<span class="sub">@ 32.18</span></td>
+                <td class="num">921,300</td>
+                <td class="num"><span class="pnl up">+137,190</span><span class="sub pnl up">+14.9%</span></td>
+                <td class="num"><span class="pnl flat">0.0%</span><span class="sub">未更新</span></td>
+                <td data-spark="3"></td>
+                <td><span class="tag">美股大盤</span> <span class="tag">未穿透</span></td>
+                <td><span class="tag warn">價格延遲</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">長榮</a><span class="sub"><span class="sym">2603</span> · TW · 股票</span></td>
+                <td>永豐 A<span class="sub">逐筆</span></td>
+                <td class="num">2,000</td>
+                <td class="num">186.50<span class="sub">10-16 13:30</span></td>
+                <td class="num">373,000</td>
+                <td class="num">395,800</td>
+                <td class="num"><span class="pnl down">−22,800</span><span class="sub pnl down">−5.8%</span></td>
+                <td class="num"><span class="pnl up">+2.6%</span></td>
+                <td data-spark="4"></td>
+                <td><span class="tag info">航運</span> <span class="tag up"><i class="dot"></i>資金流入</span></td>
+                <td><span class="tag ok">完整</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">中信關鍵半導體</a><span class="sub"><span class="sym">00891</span> · TW · ETF</span></td>
+                <td>證券帳戶 B<span class="sub">快照</span></td>
+                <td class="num">15,000</td>
+                <td class="num">22.40<span class="sub">10-16 13:30</span></td>
+                <td class="num">336,000</td>
+                <td class="num"><span class="muted">未填</span></td>
+                <td class="num"><span class="muted">不可計算</span></td>
+                <td class="num"><span class="pnl down">−1.1%</span></td>
+                <td data-spark="5"></td>
+                <td><span class="tag info">半導體</span> <span class="tag">未穿透</span></td>
+                <td><span class="tag warn">成本未完整</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">Apple</a><span class="sub"><span class="sym">AAPL</span> · US · 股票</span></td>
+                <td>Firstrade<span class="sub">逐筆</span></td>
+                <td class="num">30</td>
+                <td class="num">USD 231.10<span class="sub">10-15 收盤</span></td>
+                <td class="num">223,100<span class="sub">@ 32.18</span></td>
+                <td class="num">198,600</td>
+                <td class="num"><span class="pnl up">+24,500</span><span class="sub pnl up">+12.3%</span></td>
+                <td class="num"><span class="pnl flat">0.0%</span><span class="sub">未更新</span></td>
+                <td data-spark="6"></td>
+                <td><span class="tag info">消費電子</span> <span class="tag"><i class="dot"></i>持平</span></td>
+                <td><span class="tag warn">價格延遲</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">元大高股息</a><span class="sub"><span class="sym">0056</span> · TW · ETF</span></td>
+                <td>證券帳戶 B<span class="sub">快照</span></td>
+                <td class="num">8,000</td>
+                <td class="num">38.95<span class="sub">10-16 13:30</span></td>
+                <td class="num">311,600</td>
+                <td class="num">286,400<span class="sub">使用者自填</span></td>
+                <td class="num"><span class="pnl up">+25,200</span><span class="sub pnl up">+8.8%</span></td>
+                <td class="num"><span class="pnl up">+0.3%</span></td>
+                <td data-spark="7"></td>
+                <td><span class="tag">高股息</span> <span class="tag">未穿透</span></td>
+                <td><span class="tag ok">完整</span></td>
+              </tr>
+              <tr>
+                <td><a class="name" href="asset.html">台達電</a><span class="sub"><span class="sym">2308</span> · TW · 股票</span></td>
+                <td>永豐 A<span class="sub">逐筆</span></td>
+                <td class="num">500</td>
+                <td class="num">412.00<span class="sub">10-16 13:30</span></td>
+                <td class="num">206,000</td>
+                <td class="num">174,250</td>
+                <td class="num"><span class="pnl up">+31,750</span><span class="sub pnl up">+18.2%</span></td>
+                <td class="num"><span class="pnl up">+0.9%</span></td>
+                <td data-spark="8"></td>
+                <td><span class="tag info">電子零組件</span> <span class="tag up"><i class="dot"></i>資金流入</span></td>
+                <td><span class="tag ok">完整</span></td>
+              </tr>
+              <tr class="subtotal">
+                <td colspan="4">合計（14 檔，顯示 8）</td>
+                <td class="num">4,250,310</td>
+                <td class="num">3,859,050</td>
+                <td class="num"><span class="pnl up">+391,260</span></td>
+                <td class="num"><span class="pnl up">+0.55%</span></td>
+                <td colspan="3" class="small muted">未實現損益僅含成本完整的 11 檔</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-foot">
+          <span>價格：台股 2026-10-16 13:30 / 美股 2026-10-15 收盤 · 匯率 USD/TWD 32.18（2026-10-16）· 洋流指標 v1.2（2026-10-16）</span>
+          <span class="tag mock">示意資料</span>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'holdings', crumbs: ['洋流', '我的資產', '持倉'], stale: true });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+  document.querySelectorAll('[data-spark]').forEach(function (td) {
+    var seed = +td.getAttribute('data-spark');
+    var v = CC.series(30, 100, (seed % 3 - 1) * 0.002, 0.03, seed * 13);
+    td.innerHTML = CC.spark(v);
+    td.style.color = v[29] >= v[0] ? 'var(--up)' : 'var(--down)';
+  });
+</script>
+</body>
+</html>

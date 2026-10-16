@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>資產詳情 · 台積電 2330 · 洋流（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <div class="mock-banner"><span class="tag">示意資料</span>本頁批次、交易、價格與 AI 摘要皆為版面示意。</div>
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Asset · TW · 股票</div>
+          <h1 class="row" style="gap:12px">台積電 <span class="num muted" style="font-weight:400">2330</span> <span class="tag info">半導體</span> <span class="tag down"><i class="dot"></i>產業資金轉弱</span></h1>
+          <p class="lead">永豐 A（逐筆交易） · 持有 1,000 股 · 最新價 1,085.00（2026-10-16 13:30）</p>
+        </div>
+        <div class="row">
+          <button class="btn" type="button">紀錄股息</button>
+          <button class="btn btn-primary" type="button"><span data-ico="plus"></span>新增交易</button>
+        </div>
+      </div>
+
+      <div class="stat-row mb-4">
+        <div><div class="kpi-label">市值</div><div class="kpi-value">1,085,000</div><div class="kpi-sub">佔組合 22.3%</div></div>
+        <div><div class="kpi-label">剩餘成本</div><div class="kpi-value">862,400</div><div class="kpi-sub">862.40 / 股（含買進手續費）</div></div>
+        <div><div class="kpi-label">未實現損益</div><div class="kpi-value pnl up">+222,600</div><div class="kpi-sub"><span class="pnl up">+25.8%</span></div></div>
+        <div><div class="kpi-label">已實現損益</div><div class="kpi-value pnl up">+41,180</div><div class="kpi-sub">2 筆賣出</div></div>
+        <div><div class="kpi-label">稅後股息</div><div class="kpi-value pnl up">+18,400</div><div class="kpi-sub">近 12 個月</div></div>
+      </div>
+
+      <div class="grid grid-12">
+        <section class="card col-8">
+          <div class="card-head">
+            <div><h2>個股價格與個人損益</h2><div class="hint">深色線：收盤價（原始，未調整）· 青色線：個人持倉損益（TWD）</div></div>
+            <div class="tabs" role="tablist"><button role="tab" aria-selected="false">3M</button><button role="tab" aria-selected="true">1Y</button><button role="tab" aria-selected="false">ALL</button></div>
+          </div>
+          <div class="card-body">
+            <div class="chart" id="chart-price"></div>
+            <div class="chart-legend"><span><i></i>收盤價</span><span><i class="accent"></i>個人損益（右軸省略）</span></div>
+            <div class="chart-caption"><span>價格口徑：原始收盤，公司行動後數量已調整</span><span>來源：示意源</span></div>
+          </div>
+        </section>
+
+        <section class="card col-4">
+          <div class="card-head"><div><h2>AI 研究摘要</h2><div class="hint">模型 v2026-10 · 輸入快照 #snp-4821</div></div></div>
+          <div class="card-body">
+            <p class="small" style="line-height:1.7">依 2026-10-16 的產業洋流資料，半導體族群資金動能由 +1.8 降至 +0.4，法人連 3 日淨賣超；台積電相對產業指數近 20 日 +2.1%，<b>相對強度仍為正</b>。資金轉弱是觀察訊號，<b>不代表</b>股價必然下跌，也不等同賣出建議。</p>
+            <div class="notice warn mt-3"><span data-ico="alert"></span><span>不確定性：法人資料含 ETF 申贖影響，可能高估賣超；未納入 10-16 盤後新聞。</span></div>
+            <div class="small muted mt-3 stack" style="gap:2px">
+              <span>資料時間：行情 10-16 13:30 · 法人 10-16 · 新聞 10-15</span>
+              <span>來源：示意行情源、示意法人源（3 則新聞）</span>
+              <span>方法：產業資金動能 v1.2 · 相對強度 v1.0</span>
+            </div>
+            <a class="btn btn-sm mt-3" href="#">完整報告與引用 <span data-ico="chevron"></span></a>
+          </div>
+        </section>
+
+        <section class="card col-6 flush">
+          <div class="card-head" style="padding-bottom:12px"><div><h2>持倉批次（FIFO）</h2><div class="hint">成本含可資本化買進費用</div></div></div>
+          <div class="table-wrap">
+            <table class="table dense">
+              <thead><tr><th>取得日</th><th class="num">原始數量</th><th class="num">剩餘</th><th class="num">總成本</th><th class="num">單位成本</th><th class="num">未實現</th></tr></thead>
+              <tbody>
+                <tr><td class="num">2024-03-12</td><td class="num">500</td><td class="num">300</td><td class="num">231,600</td><td class="num">772.00</td><td class="num"><span class="pnl up">+93,900</span></td></tr>
+                <tr><td class="num">2024-11-05</td><td class="num">300</td><td class="num">300</td><td class="num">286,320</td><td class="num">954.40</td><td class="num"><span class="pnl up">+39,180</span></td></tr>
+                <tr><td class="num">2025-06-20</td><td class="num">400</td><td class="num">400</td><td class="num">344,480</td><td class="num">861.20</td><td class="num"><span class="pnl up">+89,520</span></td></tr>
+                <tr class="subtotal"><td>合計</td><td class="num">1,200</td><td class="num">1,000</td><td class="num">862,400</td><td class="num">862.40</td><td class="num"><span class="pnl up">+222,600</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card col-6 flush">
+          <div class="card-head" style="padding-bottom:12px"><div><h2>交易與股息歷史</h2><div class="hint">更正交易保留原紀錄，以沖銷方式呈現</div></div><a class="btn btn-sm" href="#">全部 9 筆</a></div>
+          <div class="table-wrap">
+            <table class="table dense">
+              <thead><tr><th>日期</th><th>類型</th><th class="num">數量</th><th class="num">單價</th><th class="num">費用 / 稅</th><th class="num">現金影響</th><th>來源</th></tr></thead>
+              <tbody>
+                <tr><td class="num">2026-09-18</td><td><span class="tag up">股息</span></td><td class="num">—</td><td class="num">5.00 / 股</td><td class="num">0 / 0</td><td class="num"><span class="pnl up">+5,000</span></td><td><span class="tag">manual</span></td></tr>
+                <tr><td class="num">2025-06-20</td><td><span class="tag info">買進</span></td><td class="num">400</td><td class="num">860.00</td><td class="num">480 / 0</td><td class="num"><span class="pnl down">−344,480</span></td><td><span class="tag">csv</span></td></tr>
+                <tr><td class="num">2025-02-14</td><td><span class="tag">賣出</span></td><td class="num">200</td><td class="num">1,010.00</td><td class="num">288 / 606</td><td class="num"><span class="pnl up">+201,106</span><span class="sub">已實現 +46,706</span></td><td><span class="tag">manual</span></td></tr>
+                <tr><td class="num">2024-11-05</td><td><span class="tag info">買進</span></td><td class="num">300</td><td class="num">953.00</td><td class="num">420 / 0 <span class="tag est">估算</span></td><td class="num"><span class="pnl down">−286,320</span></td><td><span class="tag">csv</span></td></tr>
+                <tr><td class="num">2024-03-12</td><td><span class="tag info">買進</span></td><td class="num">500</td><td class="num">771.00</td><td class="num">500 / 0</td><td class="num"><span class="pnl down">−386,000</span></td><td><span class="tag">manual</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card col-12">
+          <div class="card-head"><div><h2>產業洋流與法人資料</h2><div class="hint">半導體 · 資料日 2026-10-16 · 指標定義見市場洋流頁</div></div><a class="btn btn-sm" href="market.html">市場洋流 <span data-ico="chevron"></span></a></div>
+          <div class="card-body grid grid-12">
+            <div class="col-4">
+              <div class="kpi-label">產業資金動能（10 日）</div>
+              <div class="kpi-value pnl down">+0.4<span class="lbl">轉弱</span></div>
+              <div class="small muted">前值 +1.8 · 指標 v1.2 · 範圍 −5 ～ +5</div>
+            </div>
+            <div class="col-4">
+              <div class="kpi-label">法人買賣超（億）</div>
+              <div class="kpi-value pnl down">−42.6<span class="lbl">連 3 日賣超</span></div>
+              <div class="small muted">外資 −38.1 · 投信 +2.3 · 自營 −6.8</div>
+            </div>
+            <div class="col-4">
+              <div class="kpi-label">個股相對產業（20 日）</div>
+              <div class="kpi-value pnl up">+2.1%</div>
+              <div class="small muted">個股 +4.6% vs 產業指數 +2.5%</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'holdings', crumbs: ['洋流', '我的資產', '持倉', '台積電 2330'] });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+  var px = CC.series(240, 790, 0.0014, 0.02, 21);
+  var pnl = px.map(function (p) { return (p - 862.4) * 1000 / 1000 + 790; });
+  CC.lineChart(document.getElementById('chart-price'), {
+    w: 760, h: 240, series: [{ values: px }, { values: pnl, cls: 'line-accent' }],
+    labels: ['2025-10', '2026-01', '2026-04', '2026-07', '2026-10'], aria: '台積電價格與個人損益示意圖'
+  });
+</script>
+</body>
+</html>

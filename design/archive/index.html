@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>總覽 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content" id="networth">
+
+      <div class="mock-banner"><span class="tag">示意資料</span>本頁所有數字、走勢與訊號皆為版面示意，不是真實行情或真實持倉。</div>
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Overview</div>
+          <h1>總覽</h1>
+          <p class="lead">先看整體淨值，再看單一持倉。所有報酬率都附期間、資料完整度與計算截止日。</p>
+        </div>
+        <div class="row">
+          <div class="tabs" role="tablist" aria-label="期間">
+            <button role="tab" aria-selected="false">1M</button><button role="tab" aria-selected="false">3M</button><button role="tab" aria-selected="false">6M</button><button role="tab" aria-selected="true">YTD</button><button role="tab" aria-selected="false">1Y</button><button role="tab" aria-selected="false">ALL</button><button role="tab" aria-selected="false">自訂</button>
+          </div>
+          <a class="btn btn-primary" href="snapshot.html"><span data-ico="pen"></span>快速更新庫存</a>
+        </div>
+      </div>
+
+      <!-- 淨值首屏：一個面板，數字分層，不是六張卡片 -->
+      <section class="card hero-nav" aria-label="淨值總覽">
+        <div>
+          <div class="kpi-label">總淨值 <span class="tag ok">完整</span></div>
+          <div class="kpi-value xl"><span class="cur">NT$</span>4,862,310</div>
+          <div class="kpi-sub">
+            <span class="pnl up">+23,410<span class="lbl">今日</span></span>
+            <span class="pnl up">+0.48%</span>
+            <span class="muted">本期（YTD）<span class="pnl up">+412,560 / +9.27%</span></span>
+          </div>
+          <div class="kpi-note">證券 4,250,310 ＋ 現金 612,000 · 估值日 2026-10-16 · 台股 13:30 收盤、美股 10-15 收盤</div>
+        </div>
+        <div>
+          <div class="kpi-label">累計投資損益</div>
+          <div class="kpi-value pnl up">+612,880</div>
+          <div class="kpi-sub"><span>已實現 +188,420</span><span>未實現 +391,260</span></div>
+          <div class="kpi-note">含稅後股息 +61,300，扣費用與稅 −28,100。外部入金不計為獲利。</div>
+        </div>
+        <div>
+          <div class="kpi-label">XIRR <span class="small muted">資金加權</span></div>
+          <div class="kpi-value pnl up">+11.4%<span class="lbl">年化</span></div>
+          <div class="kpi-sub"><span>2023-03-01 → 2026-10-16</span></div>
+          <div class="kpi-note">外部現金流 14 筆，期末淨值為正現金流。計算截止 2026-10-16。</div>
+        </div>
+        <div>
+          <div class="kpi-label">TWR <span class="small muted">時間加權</span></div>
+          <div class="kpi-value pnl up">+27.8%<span class="lbl">累積</span></div>
+          <div class="kpi-sub"><span>年化 +7.1%</span><span class="tag warn">部分</span></div>
+          <div class="kpi-note">2025-04 有 3 個交易日缺 USD/TWD 匯率，子期間以沿用匯率估算。</div>
+        </div>
+        <div class="band">
+          <span>現金水位 <b class="num">12.6%</b>（NT$ 612,000，其中 USD 8,200）</span>
+          <span>資料完整度 <span class="tag warn">partial · 2 項缺漏</span></span>
+          <span>計算版本 <b class="num">v3</b></span>
+          <span>資料來源：行情示意源 / 匯率示意源</span>
+        </div>
+      </section>
+
+      <div class="grid grid-12 mt-4">
+
+        <!-- 淨值走勢 -->
+        <section class="card col-8">
+          <div class="card-head">
+            <div><h2>淨值走勢</h2><div class="hint">基準幣別 TWD · 每日估值快照 · 非交易日沿用最近有效價格並標示</div></div>
+            <div class="tabs" role="tablist"><button role="tab" aria-selected="true">淨值</button><button role="tab" aria-selected="false">投入本金</button><button role="tab" aria-selected="false">損益</button></div>
+          </div>
+          <div class="card-body">
+            <div class="chart" id="chart-networth"></div>
+            <div class="chart-legend"><span><i></i>總淨值</span><span><i class="bench"></i>累計淨投入</span><span><i class="gap"></i>匯率缺漏區段（估算）</span></div>
+          </div>
+          <div class="card-foot"><span>價格日期 2026-10-16（台股） / 2026-10-15（美股）· 匯率日期 2026-10-16</span><span class="tag mock">示意資料</span></div>
+        </section>
+
+        <!-- 資產配置 -->
+        <section class="card col-4">
+          <div class="card-head">
+            <div><h2>資產配置</h2><div class="hint">依市值，含現金</div></div>
+          </div>
+          <div class="card-body">
+            <div class="tabs mb-3" role="tablist"><button role="tab" aria-selected="true">市場</button><button role="tab" aria-selected="false">幣別</button><button role="tab" aria-selected="false">產業</button><button role="tab" aria-selected="false">類別</button></div>
+            <div class="alloc" aria-hidden="true"><span class="c1" style="width:54%"></span><span class="c2" style="width:27%"></span><span class="c3" style="width:6%"></span><span class="c5" style="width:13%"></span></div>
+            <div class="alloc-legend">
+              <span><i class="sw c1"></i>台股</span><span class="num">2,625,650</span><span class="num">54.0%</span>
+              <span><i class="sw c2"></i>美股</span><span class="num">1,312,800</span><span class="num">27.0%</span>
+              <span><i class="sw c3"></i>ETF（跨市場）</span><span class="num">311,860</span><span class="num">6.4%</span>
+              <span><i class="sw c5"></i>現金 TWD / USD</span><span class="num">612,000</span><span class="num">12.6%</span>
+            </div>
+            <div class="notice info mt-4"><span data-ico="info"></span><span>產業配置以持倉所屬產業計算；ETF 穿透曝險需成分股資料，目前標示為「未穿透」。</span></div>
+          </div>
+        </section>
+
+        <!-- TWR 與基準 -->
+        <section class="card col-6">
+          <div class="card-head">
+            <div><h2>TWR 累積報酬 vs 基準</h2><div class="hint">同期間、同幣別、皆含股息再投資（總報酬口徑）</div></div>
+            <button class="btn btn-sm" type="button">基準：台灣 50 總報酬 <span data-ico="updown"></span></button>
+          </div>
+          <div class="card-body">
+            <div class="chart" id="chart-twr"></div>
+            <div class="chart-legend"><span><i class="accent"></i>投資組合 TWR</span><span><i class="bench"></i>基準指數（總報酬）</span></div>
+            <div class="chart-caption"><span>期間 2026-01-01 → 2026-10-16</span><span>組合 +9.3%</span><span>基準 +11.8%</span><span>差距 −2.5 個百分點</span></div>
+          </div>
+        </section>
+
+        <!-- 損益組成 -->
+        <section class="card col-6">
+          <div class="card-head">
+            <div><h2>損益組成</h2><div class="hint">YTD，基準幣別 TWD。各項只計一次。</div></div>
+          </div>
+          <div class="card-body">
+            <div class="bars">
+              <div class="bar-row"><span>已實現損益</span><div class="track"><div class="fill" style="left:40%;width:28%"></div></div><span class="v pnl up">+188,420</span></div>
+              <div class="bar-row"><span>未實現損益</span><div class="track"><div class="fill" style="left:40%;width:58%"></div></div><span class="v pnl up">+391,260</span></div>
+              <div class="bar-row"><span>稅後股息</span><div class="track"><div class="fill" style="left:40%;width:9%"></div></div><span class="v pnl up">+61,300</span></div>
+              <div class="bar-row"><span>費用與稅費</span><div class="track"><div class="fill neg" style="left:36%;width:4%"></div></div><span class="v pnl down">−28,100</span></div>
+              <div class="bar-row"><span>匯率影響估算 <span class="tag est">估算</span></span><div class="track"><div class="fill neg" style="left:34%;width:6%"></div></div><span class="v pnl down">−41,200</span></div>
+              <div class="bar-row" style="border-top:1px solid var(--line);padding-top:6px"><strong>整體投資損益</strong><div class="track"><div class="fill" style="left:40%;width:60%;background:var(--chart-1)"></div></div><span class="v pnl up"><strong>+571,680</strong></span></div>
+            </div>
+            <p class="small muted mt-3">匯率影響為績效歸因估算（方法 fx-attr v2），不納入帳本。</p>
+          </div>
+        </section>
+
+        <!-- 市場訊號 -->
+        <section class="card col-7">
+          <div class="card-head">
+            <div><h2>與持倉相關的市場洋流訊號</h2><div class="hint">觀察線索，不是買賣訊號。每則都附指標定義、資料日期與來源。</div></div>
+            <a class="btn btn-sm" href="market.html">市場洋流 <span data-ico="chevron"></span></a>
+          </div>
+          <div class="card-body">
+            <div class="signal">
+              <div class="ico warn"><span data-ico="alert"></span></div>
+              <div>
+                <h3>你的投資組合有 38% 曝險於半導體產業</h3>
+                <p>台積電、聯發科與 00891 合計市值 1,847,000。此產業近 10 日資金動能指標由 +1.8 降至 +0.4，法人連 3 日淨賣超。這是觀察訊號，不代表價格必然下跌。</p>
+                <div class="meta"><span>指標：產業資金動能 v1.2</span><span>資料日 2026-10-16</span><span>來源：示意源</span><span>限制：未含 ETF 穿透</span></div>
+              </div>
+            </div>
+            <div class="signal">
+              <div class="ico"><span data-ico="wave"></span></div>
+              <div>
+                <h3>航運族群資金 5 日淨流入，與你的 2603 持倉相關</h3>
+                <p>產業相對大盤強度 +3.2%，法人買超 5 日。資金流入不等於買進訊號；請同時檢視個股相對產業表現。</p>
+                <div class="meta"><span>指標：產業相對強度 v1.0</span><span>資料日 2026-10-16</span><span>來源：示意源</span></div>
+              </div>
+            </div>
+            <div class="signal">
+              <div class="ico"><span data-ico="info"></span></div>
+              <div>
+                <h3>VOO 相對基準落後 1.9 個百分點</h3>
+                <p>比較期間 2026-01-01 → 10-16，幣別 USD，兩者皆含股息再投資。若以 TWD 計算，匯率影響約 −2.4%。</p>
+                <div class="meta"><span>基準：S&P 500 總報酬</span><span>資料日 2026-10-15</span><span>口徑：USD、總報酬</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 資料完整度 + 股息 -->
+        <section class="col-5 stack" style="gap:var(--space-4)">
+          <div class="card">
+            <div class="card-head"><div><h2>資料完整度</h2><div class="hint">缺漏一律明示，不以 0 或 1 填補</div></div><span class="tag warn">partial</span></div>
+            <div class="card-body">
+              <div class="quality">
+                <div class="quality-item"><span class="what">美股價格</span><span class="tag warn">延遲 1 日</span><span class="why">美股 10-16 尚未收盤，沿用 10-15 收盤價。</span></div>
+                <div class="quality-item"><span class="what">USD/TWD 匯率</span><span class="tag ok">10-16</span><span class="why">1 USD = 32.18 TWD，來源：示意源。</span></div>
+                <div class="quality-item"><span class="what">證券帳戶 B 成本</span><span class="tag warn">成本未完整</span><span class="why">快照模式，3 檔未填成本；未實現損益不可計算，市值可計算。</span></div>
+                <div class="quality-item"><span class="what">2025-04 匯率</span><span class="tag err">缺 3 日</span><span class="why">影響 TWR 子期間，已以沿用匯率估算並標示。</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>股息收入趨勢</h2><div class="hint">稅後實收，按入帳月</div></div></div>
+            <div class="card-body">
+              <div class="chart" id="chart-div"></div>
+              <div class="chart-caption"><span>YTD 稅前 68,900 / 稅後 61,300</span><span>扣繳稅 7,600</span></div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'overview', crumbs: ['洋流', '總覽'], stale: true });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+
+  var nw = CC.series(200, 4150000, 0.0009, 0.018, 7);
+  var contrib = []; var c = 3900000; for (var i = 0; i < 200; i++) { if (i % 25 === 0 && i) c += 60000; contrib.push(c); }
+  CC.lineChart(document.getElementById('chart-networth'), {
+    w: 760, h: 240, series: [{ values: nw }, { values: contrib, cls: 'line-bench' }],
+    gaps: [[70, 76]], labels: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月'],
+    yFmt: function (v) { return (v / 1000000).toFixed(2) + 'M'; }, aria: '淨值走勢示意圖'
+  });
+  var twr = CC.series(200, 100, 0.0005, 0.016, 3).map(function (v) { return v - 100; });
+  var bench = CC.series(200, 100, 0.0006, 0.014, 11).map(function (v) { return v - 100; });
+  CC.lineChart(document.getElementById('chart-twr'), {
+    w: 560, h: 200, series: [{ values: twr, cls: 'line-accent' }, { values: bench, cls: 'line-bench' }], area: false,
+    labels: ['1月', '4月', '7月', '10月'], yFmt: function (v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, aria: 'TWR 與基準比較示意圖'
+  });
+  var dv = [2100, 0, 9800, 3200, 0, 12400, 4100, 15600, 0, 13100];
+  var el = document.getElementById('chart-div'), w = 420, h = 120, mx = 16000;
+  var s = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="股息收入趨勢示意圖">';
+  dv.forEach(function (v, i) { var bw = 28, x = 10 + i * ((w - 20) / 10), bh = v / mx * (h - 30); s += '<rect x="' + (x + 6) + '" y="' + (h - 22 - bh) + '" width="' + bw + '" height="' + bh + '" rx="3" fill="var(--chart-2)"/>'; s += '<text class="axis" x="' + (x + 20) + '" y="' + (h - 6) + '" text-anchor="middle">' + (i + 1) + '月</text>'; });
+  el.innerHTML = s + '</svg>';
+</script>
+</body>
+</html>

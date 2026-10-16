@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>市場洋流 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <section class="ocean-hero" id="hero">
+        <div class="eyebrow">Market Current</div>
+        <h1>市場洋流</h1>
+        <p class="mt-2">產業與族群的資金動能、法人買賣超、個股強度與輪動。洋流是研究線索，不是保證方向的訊號；資金流入不等於買進訊號。</p>
+        <div class="stats">
+          <div><div class="kpi-label">資料日</div><div class="kpi-value">2026-10-16</div></div>
+          <div><div class="kpi-label">市場</div><div class="kpi-value">台股</div></div>
+          <div><div class="kpi-label">指標版本</div><div class="kpi-value">v1.2</div></div>
+          <div><div class="kpi-label">延遲</div><div class="kpi-value">收盤後 40 分</div></div>
+          <div style="align-self:center"><span class="tag mock">示意資料</span></div>
+        </div>
+      </section>
+
+      <div class="row-between mb-4">
+        <div class="row">
+          <div class="tabs" role="tablist"><button role="tab" aria-selected="true">台股</button><button role="tab" aria-selected="false">美股</button></div>
+          <div class="tabs" role="tablist"><button role="tab" aria-selected="false">5 日</button><button role="tab" aria-selected="true">10 日</button><button role="tab" aria-selected="false">20 日</button></div>
+        </div>
+        <label class="switch"><input type="checkbox" checked><span class="track"></span>只顯示與我的持倉相關</label>
+      </div>
+
+      <div class="grid grid-12">
+        <section class="card col-8 flush">
+          <div class="card-head" style="padding-bottom:12px">
+            <div><h2>產業資金動能</h2><div class="hint">動能指標範圍 −5 ～ +5；熱度格為近 10 日逐日方向（青＝流入、藍＝流出）</div></div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>產業 / 族群</th><th class="num">動能（10 日）</th><th class="num">變化</th><th>近 10 日</th><th class="num">法人淨買賣（億）</th><th class="num">相對大盤</th><th>我的曝險</th></tr></thead>
+              <tbody>
+                <tr><td class="name">航運</td><td class="num pnl up">+2.9</td><td class="num pnl up">+1.1</td><td><div class="heat" style="width:140px" data-heat="1,2,1,3,4,3,5,4,5,5"></div></td><td class="num pnl up">+28.4</td><td class="num pnl up">+3.2%</td><td><span class="tag info">7.7%</span></td></tr>
+                <tr><td class="name">電子零組件</td><td class="num pnl up">+1.6</td><td class="num pnl up">+0.4</td><td><div class="heat" style="width:140px" data-heat="2,3,3,2,4,3,3,4,3,4"></div></td><td class="num pnl up">+12.1</td><td class="num pnl up">+1.1%</td><td><span class="tag info">4.2%</span></td></tr>
+                <tr><td class="name">金融</td><td class="num pnl up">+0.8</td><td class="num pnl up">+0.2</td><td><div class="heat" style="width:140px" data-heat="1,1,2,2,1,3,2,2,3,2"></div></td><td class="num pnl up">+6.3</td><td class="num pnl down">−0.4%</td><td><span class="muted small">—</span></td></tr>
+                <tr><td class="name">半導體</td><td class="num pnl down">+0.4</td><td class="num pnl down">−1.4</td><td><div class="heat" style="width:140px" data-heat="4,5,4,3,3,2,1,-2,-3,-3"></div></td><td class="num pnl down">−42.6</td><td class="num pnl down">−0.9%</td><td><span class="tag warn">38.0%</span></td></tr>
+                <tr><td class="name">生技醫療</td><td class="num pnl down">−0.6</td><td class="num pnl down">−0.3</td><td><div class="heat" style="width:140px" data-heat="1,-1,-2,1,-1,-2,-1,-2,-1,-2"></div></td><td class="num pnl down">−3.8</td><td class="num pnl down">−1.6%</td><td><span class="muted small">—</span></td></tr>
+                <tr><td class="name">光電</td><td class="num pnl down">−1.9</td><td class="num pnl down">−0.8</td><td><div class="heat" style="width:140px" data-heat="-1,-2,-3,-2,-3,-4,-3,-4,-5,-4"></div></td><td class="num pnl down">−15.2</td><td class="num pnl down">−3.1%</td><td><span class="muted small">—</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot"><span>指標：產業資金動能 v1.2 ＝ 成交量加權資金流 Z 分數（10 日）· 法人資料含 ETF 申贖影響 · 來源：示意源</span></div>
+        </section>
+
+        <section class="col-4 stack" style="gap:var(--space-4)">
+          <div class="card">
+            <div class="card-head"><div><h2>我的產業曝險</h2><div class="hint">依持倉市值，ETF 未穿透</div></div></div>
+            <div class="card-body">
+              <div class="bars">
+                <div class="bar-row"><span>半導體</span><div class="track"><div class="fill" style="width:38%;background:var(--chart-1)"></div></div><span class="v num">38.0%</span></div>
+                <div class="bar-row"><span>美股大盤 ETF</span><div class="track"><div class="fill" style="width:21.8%;background:var(--chart-3)"></div></div><span class="v num">21.8%</span></div>
+                <div class="bar-row"><span>航運</span><div class="track"><div class="fill" style="width:7.7%"></div></div><span class="v num">7.7%</span></div>
+                <div class="bar-row"><span>高股息 ETF</span><div class="track"><div class="fill" style="width:6.4%;background:var(--chart-4)"></div></div><span class="v num">6.4%</span></div>
+                <div class="bar-row"><span>消費電子</span><div class="track"><div class="fill" style="width:4.6%"></div></div><span class="v num">4.6%</span></div>
+                <div class="bar-row"><span>電子零組件</span><div class="track"><div class="fill" style="width:4.2%"></div></div><span class="v num">4.2%</span></div>
+                <div class="bar-row"><span>現金</span><div class="track"><div class="fill" style="width:12.6%;background:var(--chart-5)"></div></div><span class="v num">12.6%</span></div>
+              </div>
+              <div class="notice warn mt-4"><span data-ico="alert"></span><span>半導體曝險 38% 高於你設定的單一產業上限 30%。這是提醒，不是建議動作。</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>產業輪動（20 日）</h2><div class="hint">動能 vs 相對強度象限</div></div></div>
+            <div class="card-body"><div class="chart" id="chart-rot"></div></div>
+          </div>
+        </section>
+
+        <section class="card col-12 flush">
+          <div class="card-head" style="padding-bottom:12px">
+            <div><h2>個股強度：半導體（與持倉相關）</h2><div class="hint">相對產業指數的 20 日表現；星號為你的持倉</div></div>
+            <div class="row"><button class="chip" aria-pressed="true" type="button">半導體</button><button class="chip" aria-pressed="false" type="button">航運</button><button class="chip" aria-pressed="false" type="button">電子零組件</button></div>
+          </div>
+          <div class="table-wrap">
+            <table class="table dense">
+              <thead><tr><th>個股</th><th class="num">收盤</th><th class="num">20 日</th><th class="num">相對產業</th><th class="num">法人 5 日（張）</th><th>資金方向</th><th>相關新聞</th></tr></thead>
+              <tbody>
+                <tr><td><span class="name">台積電</span> <span class="sym muted">2330</span> <span class="tag ok">持有</span></td><td class="num">1,085.00</td><td class="num pnl up">+4.6%</td><td class="num pnl up">+2.1%</td><td class="num pnl down">−18,200</td><td><span class="tag down"><i class="dot"></i>流出</span></td><td class="small"><a href="#">先進封裝擴產進度（10-15）</a></td></tr>
+                <tr><td><span class="name">聯發科</span> <span class="sym muted">2454</span> <span class="tag ok">持有</span></td><td class="num">1,420.00</td><td class="num pnl down">−1.8%</td><td class="num pnl down">−4.3%</td><td class="num pnl down">−6,400</td><td><span class="tag down"><i class="dot"></i>流出</span></td><td class="small"><a href="#">法說會展望（10-14）</a></td></tr>
+                <tr><td><span class="name">日月光投控</span> <span class="sym muted">3711</span></td><td class="num">168.50</td><td class="num pnl up">+6.2%</td><td class="num pnl up">+3.7%</td><td class="num pnl up">+9,800</td><td><span class="tag up"><i class="dot"></i>流入</span></td><td class="small muted">—</td></tr>
+                <tr><td><span class="name">聯電</span> <span class="sym muted">2303</span></td><td class="num">48.20</td><td class="num pnl down">−3.4%</td><td class="num pnl down">−5.9%</td><td class="num pnl down">−22,100</td><td><span class="tag down"><i class="dot"></i>流出</span></td><td class="small muted">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot"><span>相對產業 ＝ 個股 20 日報酬 − 產業指數 20 日報酬（價格報酬，不含股息）· 新聞僅列標題、日期與連結</span><span class="tag mock">示意資料</span></div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'market', crumbs: ['洋流', '市場洋流'] });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+  CC.streams(document.getElementById('hero'));
+  document.querySelectorAll('[data-heat]').forEach(function (el) {
+    el.innerHTML = el.getAttribute('data-heat').split(',').map(function (v) { v = +v; return '<span class="' + (v > 0 ? 'flow-in-' + v : v < 0 ? 'flow-out-' + (-v) : '') + '" title="' + v + '"></span>'; }).join('');
+  });
+  // 輪動象限圖
+  var el = document.getElementById('chart-rot'), w = 360, h = 220, pts = [
+    ['航運', 2.9, 3.2], ['電子零組件', 1.6, 1.1], ['金融', 0.8, -0.4], ['半導體', 0.4, -0.9], ['生技', -0.6, -1.6], ['光電', -1.9, -3.1]
+  ];
+  var x = function (v) { return 30 + (v + 4) / 8 * (w - 40); }, y = function (v) { return 10 + (1 - (v + 4) / 8) * (h - 36); };
+  var s = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="產業輪動象限示意圖">';
+  s += '<g class="grid"><line x1="' + x(0) + '" x2="' + x(0) + '" y1="10" y2="' + (h - 26) + '"/><line x1="30" x2="' + (w - 10) + '" y1="' + y(0) + '" y2="' + y(0) + '"/></g>';
+  s += '<text class="axis" x="' + (w - 10) + '" y="' + (h - 8) + '" text-anchor="end">資金動能 →</text><text class="axis" x="4" y="18">相對強度 ↑</text>';
+  pts.forEach(function (p) { var mine = /航運|半導體|電子/.test(p[0]); s += '<circle cx="' + x(p[1]) + '" cy="' + y(p[2]) + '" r="' + (mine ? 6 : 4) + '" fill="' + (mine ? 'var(--chart-2)' : 'var(--chart-5)') + '"/><text class="axis" x="' + (x(p[1]) + 9) + '" y="' + (y(p[2]) + 4) + '" style="fill:var(--ink-2)">' + p[0] + '</text>'; });
+  el.innerHTML = s + '</svg>';
+</script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>匯入中心 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <div class="mock-banner"><span class="tag">示意資料</span>預覽列與錯誤皆為版面示意。</div>
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Import Center</div>
+          <h1>匯入中心</h1>
+          <p class="lead">先預覽、驗證、確認，再正式寫入。同一檔案重複匯入會被阻擋；失敗時整批回滾。</p>
+        </div>
+        <a class="btn" href="#">匯入紀錄（12）</a>
+      </div>
+
+      <div class="stepper" aria-label="匯入步驟">
+        <div class="step done">上傳檔案</div><div class="bar"></div>
+        <div class="step done">選擇格式與欄位對應</div><div class="bar"></div>
+        <div class="step current">預覽與驗證</div><div class="bar"></div>
+        <div class="step">確認匯入</div><div class="bar"></div>
+        <div class="step">結果報告</div>
+      </div>
+
+      <div class="grid grid-12">
+        <section class="card col-8 flush">
+          <div class="table-toolbar">
+            <span data-ico="file" class="ico muted"></span>
+            <div><strong>sinopac_2026Q3.csv</strong><span class="sub small muted" style="display:block">永豐金證券格式 · 48 列 · SHA-256 a91f…c3e2 · 帳戶：永豐 A</span></div>
+            <span class="spacer"></span>
+            <button class="chip" aria-pressed="true" type="button">全部 48</button>
+            <button class="chip" aria-pressed="false" type="button"><span class="tag ok">有效 43</span></button>
+            <button class="chip" aria-pressed="false" type="button"><span class="tag info">重複 3</span></button>
+            <button class="chip" aria-pressed="false" type="button"><span class="tag err">錯誤 2</span></button>
+          </div>
+          <div class="table-wrap">
+            <table class="table dense">
+              <thead><tr><th>#</th><th>狀態</th><th>交易日</th><th>代號</th><th>方向</th><th class="num">數量</th><th class="num">價格</th><th class="num">手續費</th><th class="num">交易稅</th><th>幣別</th><th>說明</th></tr></thead>
+              <tbody>
+                <tr><td class="num muted">1</td><td><span class="tag ok">有效</span></td><td class="num">2026-07-02</td><td class="sym">2330</td><td>買進</td><td class="num">200</td><td class="num">1,012.00</td><td class="num">288</td><td class="num">0</td><td>TWD</td><td></td></tr>
+                <tr><td class="num muted">2</td><td><span class="tag ok">有效</span></td><td class="num">2026-07-02</td><td class="sym">2603</td><td>買進</td><td class="num">1,000</td><td class="num">192.50</td><td class="num">274</td><td class="num">0</td><td>TWD</td><td></td></tr>
+                <tr class="row-dup"><td class="num muted">3</td><td><span class="tag info">重複候選</span></td><td class="num">2026-07-15</td><td class="sym">2454</td><td>買進</td><td class="num">100</td><td class="num">1,388.00</td><td class="num">197</td><td class="num">0</td><td>TWD</td><td class="small wrap">與交易 #tx-2291（手動輸入 07-15）相同日期、代號、數量、價格</td></tr>
+                <tr class="row-err"><td class="num muted">4</td><td><span class="tag err">錯誤</span></td><td class="num">2026-07-18</td><td class="sym" style="color:var(--err)">2881A</td><td>賣出</td><td class="num">500</td><td class="num">74.10</td><td class="num">52</td><td class="num">111</td><td>TWD</td><td class="small wrap">代號無法辨識 · <a href="#">指定資產</a></td></tr>
+                <tr><td class="num muted">5</td><td><span class="tag ok">有效</span></td><td class="num">2026-08-01</td><td class="sym">2330</td><td>股息</td><td class="num">—</td><td class="num">4.00 / 股</td><td class="num">0</td><td class="num">0</td><td>TWD</td><td class="small wrap">稅前 4,000 · 稅後 4,000</td></tr>
+                <tr class="row-err"><td class="num muted">6</td><td><span class="tag err">錯誤</span></td><td class="num">2026-08-06</td><td class="sym">2308</td><td>賣出</td><td class="num">800</td><td class="num">405.00</td><td class="num">461</td><td class="num">972</td><td>TWD</td><td class="small wrap">賣出 800 股超過可用持倉 500 股；請先補登買進或改為調整事件</td></tr>
+                <tr><td class="num muted">7</td><td><span class="tag ok">有效</span> <span class="tag est">費用估算</span></td><td class="num">2026-08-12</td><td class="sym">0050</td><td>買進</td><td class="num">1,000</td><td class="num">205.30</td><td class="num muted">293</td><td class="num">0</td><td>TWD</td><td class="small wrap">檔案未提供手續費，依 fee_tax_rules TW/ETF（2026-01 版）估算 0.1425%</td></tr>
+                <tr><td class="num muted">8</td><td><span class="tag ok">有效</span></td><td class="num">2026-08-20</td><td class="sym">—</td><td>入金</td><td class="num">—</td><td class="num">—</td><td class="num">0</td><td class="num">0</td><td>TWD</td><td class="small wrap">金額 100,000 · 標記為外部現金流</td></tr>
+                <tr><td class="num muted">…</td><td colspan="10" class="muted small">其餘 40 列</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-foot"><span>欄位對應：永豐金 v2 模板 · 日期視為交易所當地交易日（Asia/Taipei）· 費用以檔案為準，缺漏才估算</span><a href="#">下載驗證報告</a></div>
+        </section>
+
+        <section class="col-4 stack" style="gap:var(--space-4)">
+          <div class="card">
+            <div class="card-head"><div><h2>驗證摘要</h2></div></div>
+            <div class="card-body">
+              <div class="spec">
+                <dt>總列數</dt><dd class="num">48</dd>
+                <dt>有效</dt><dd class="num">43</dd>
+                <dt>重複候選</dt><dd class="num">3 <span class="small muted">預設略過</span></dd>
+                <dt>錯誤</dt><dd class="num" style="color:var(--err)">2 <span class="small">需修正或排除</span></dd>
+                <dt>費用估算</dt><dd class="num">6 列</dd>
+                <dt>外部現金流</dt><dd class="num">2 筆 · +180,000</dd>
+              </div>
+              <div class="notice err mt-4"><span data-ico="alert"></span><span>有 2 列錯誤，無法確認匯入。請修正、排除，或改為調整事件。</span></div>
+              <div class="field mt-4">
+                <label>重複候選處理</label>
+                <label class="chip" style="justify-content:flex-start"><input type="radio" name="d" checked style="margin:0 2px 0 0"> 略過 3 列（保留既有交易）</label>
+                <label class="chip" style="justify-content:flex-start"><input type="radio" name="d" style="margin:0 2px 0 0"> 仍然匯入（我確認不是重複）</label>
+              </div>
+              <div class="stack mt-4" style="gap:8px">
+                <button class="btn btn-primary" type="button" disabled>確認匯入 43 列</button>
+                <button class="btn" type="button">排除錯誤列後匯入（41）</button>
+                <button class="btn btn-ghost" type="button">返回欄位對應</button>
+              </div>
+              <p class="xs muted mt-3">確認後以單一資料庫交易寫入；任何一列失敗即整批回滾，批次狀態標為失敗。</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div><h2>匯入後會發生什麼</h2></div></div>
+            <div class="card-body small" style="line-height:1.7">
+              <ol style="margin:0;padding-left:18px">
+                <li>建立 43 筆交易（source: csv，各列保留 import_row_id）。</li>
+                <li>重算永豐 A 的現金帳本、FIFO 批次與賣出分配。</li>
+                <li>2 筆入金寫入外部現金流，XIRR／TWR 重新分段。</li>
+                <li>2026-07-02 起的每日估值以新計算版本重算，舊版本保留。</li>
+                <li>產出結果報告：成功／略過／失敗筆數與錯誤 CSV。</li>
+              </ol>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'import', crumbs: ['洋流', '我的資產', '匯入中心'] });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico'), el.className || 'ico'); });
+</script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>快速更新庫存 · 洋流 Capital Current（設計稿）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <div class="content">
+
+      <div class="mock-banner"><span class="tag">示意資料</span>表單內容為版面示意。</div>
+
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Snapshot Tracking</div>
+          <h1>快速更新庫存</h1>
+          <p class="lead">證券帳戶 B（快照模式）。直接改股數、成本、現價或現金；確認後建立新快照，過往快照不會被覆寫。</p>
+        </div>
+        <div class="row">
+          <div class="field" style="gap:4px"><label for="asof" class="xs">估值基準日</label><input id="asof" class="input num" type="date" value="2026-10-16" style="min-width:160px"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-12">
+        <section class="card col-8 flush">
+          <div class="table-toolbar">
+            <strong>持倉</strong><span class="muted small">上次快照 2026-10-09</span>
+            <span class="spacer"></span>
+            <button class="btn btn-sm" type="button"><span data-ico="plus"></span>新增一列</button>
+            <a class="btn btn-sm" href="import.html"><span data-ico="upload"></span>匯入券商庫存 CSV</a>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>資產</th><th class="num" style="width:150px">股數</th><th class="num" style="width:170px">平均成本（可選）</th><th class="num" style="width:150px">現價</th><th class="num">市值</th><th>差異</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><span class="name">中信關鍵半導體</span><span class="sub"><span class="sym">00891</span> · TW · ETF</span></td>
+                  <td><input class="input num" value="15,000" aria-label="00891 股數"></td>
+                  <td><input class="input num" placeholder="未填" aria-label="00891 平均成本"></td>
+                  <td><input class="input num" value="22.40" aria-label="00891 現價"></td>
+                  <td class="num">336,000</td>
+                  <td><span class="diff"><span class="muted">15,000</span><span class="arrow">→</span><span class="new">15,000</span></span><br><span class="tag warn mt-2">成本未完整</span></td>
+                </tr>
+                <tr class="row-diff">
+                  <td><span class="name">元大高股息</span><span class="sub"><span class="sym">0056</span> · TW · ETF</span></td>
+                  <td><input class="input num" value="9,000" aria-label="0056 股數"></td>
+                  <td><input class="input num" value="35.80" aria-label="0056 平均成本"></td>
+                  <td><input class="input num" value="38.95" aria-label="0056 現價"></td>
+                  <td class="num">350,550</td>
+                  <td><span class="diff"><span class="muted">8,000</span><span class="arrow">→</span><span class="new">9,000</span><span class="delta">+1,000</span></span><br><span class="small muted">市值 +38,950</span></td>
+                </tr>
+                <tr>
+                  <td><span class="name">富邦台 50</span><span class="sub"><span class="sym">006208</span> · TW · ETF</span></td>
+                  <td><input class="input num" value="2,000" aria-label="006208 股數"></td>
+                  <td><input class="input num" value="98.20" aria-label="006208 平均成本"></td>
+                  <td><input class="input num" value="118.65" aria-label="006208 現價"></td>
+                  <td class="num">237,300</td>
+                  <td><span class="diff"><span class="muted">2,000</span><span class="arrow">→</span><span class="new">2,000</span></span></td>
+                </tr>
+                <tr class="row-err">
+                  <td><span class="name">台泥</span><span class="sub"><span class="sym">1101</span> · TW · 股票</span></td>
+                  <td><input class="input num" value="0" aria-label="1101 股數" aria-invalid="true"></td>
+                  <td><input class="input num" value="31.40" aria-label="1101 平均成本"></td>
+                  <td><input class="input num" value="33.10" aria-label="1101 現價"></td>
+                  <td class="num">0</td>
+                  <td><span class="diff"><span class="muted">3,000</span><span class="arrow">→</span><span class="new">0</span><span class="delta">−3,000</span></span><br><span class="small" style="color:var(--err)">股數歸零：請確認是賣出還是輸入錯誤</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-toolbar" style="border-top:1px solid var(--line-2);border-bottom:0">
+            <strong>現金</strong>
+            <span class="spacer"></span>
+          </div>
+          <div class="card-body" style="padding-top:0">
+            <div class="form-grid">
+              <div class="field"><label for="cash-twd">TWD 現金餘額</label><div class="input-group"><input id="cash-twd" class="input num" value="128,400"><span class="suffix">TWD</span></div><span class="help diff"><span class="muted">102,900</span><span class="arrow">→</span><span class="new">128,400</span><span class="delta">+25,500</span></span></div>
+              <div class="field"><label for="flow">本期外部入金／出金</label><div class="input-group"><input id="flow" class="input num" value="+30,000"><span class="suffix">TWD</span></div><span class="help">只填從帳戶外轉入／轉出的金額；買賣與股息不算。</span></div>
+              <div class="field"><label for="flow-date">入金日期</label><input id="flow-date" class="input num" type="date" value="2026-10-14"><span class="help">用於 XIRR／TWR 子期間分界。</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="col-4 stack" style="gap:var(--space-4)">
+          <div class="card">
+            <div class="card-head"><div><h2>本次快照摘要</h2><div class="hint">基準日 2026-10-16</div></div></div>
+            <div class="card-body">
+              <div class="spec">
+                <dt>證券市值</dt><dd class="num">923,850 <span class="small pnl up">+38,950</span></dd>
+                <dt>現金</dt><dd class="num">128,400 <span class="small pnl up">+25,500</span></dd>
+                <dt>帳戶淨值</dt><dd class="num"><strong>1,052,250</strong></dd>
+                <dt>外部現金流</dt><dd class="num">+30,000（10-14）</dd>
+                <dt>可計算指標</dt><dd>淨值曲線、市值配置</dd>
+                <dt>受限指標</dt><dd><span class="tag warn">成本未完整</span> 1 檔未實現損益不可計算；已實現損益與逐批成本不適用於快照模式</dd>
+              </div>
+              <div class="notice err mt-4"><span data-ico="alert"></span><span>台泥股數由 3,000 改為 0。若為賣出，建議改用「建立調整事件」保留紀錄。</span></div>
+              <div class="stack mt-4" style="gap:8px">
+                <button class="btn btn-primary" type="button" disabled>確認並建立快照</button>
+                <button class="btn" type="button">建立調整事件</button>
+                <button class="btn btn-ghost" type="button">取消</button>
+              </div>
+              <p class="xs muted mt-3">確認後建立新快照（source: manual）。舊快照保留；此帳戶不會寫入任何交易紀錄。</p>
+            </div>
+          </div>
+
+          <!-- 與交易帳本衝突時的對話框（靜態示意） -->
+          <div class="dialog" role="dialog" aria-labelledby="dlg-t">
+            <div class="eyebrow mb-2">衝突示意</div>
+            <h2 id="dlg-t">此帳戶已有交易帳本</h2>
+            <p class="small muted">永豐 A 為逐筆交易模式。你輸入的台達電股數（600）與帳本推算（500）不一致。系統不會靜默修改交易歷史。</p>
+            <div class="stack mt-3" style="gap:6px">
+              <label class="chip" style="justify-content:flex-start"><input type="radio" name="c" checked style="margin:0 2px 0 0"> 建立調整事件（adjustment，+100 股，記錄來源與日期）</label>
+              <label class="chip" style="justify-content:flex-start"><input type="radio" name="c" style="margin:0 2px 0 0"> 取消本次變更</label>
+            </div>
+            <div class="actions"><button class="btn" type="button">取消</button><button class="btn btn-primary" type="button">建立調整事件</button></div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="assets/app.js"></script>
+<script>
+  CC.shell({ active: 'holdings', crumbs: ['洋流', '我的資產', '持倉', '快速更新庫存'] });
+  document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = CC.icon(el.getAttribute('data-ico')); });
+</script>
+</body>
+</html>
