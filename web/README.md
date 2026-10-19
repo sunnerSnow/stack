@@ -44,6 +44,8 @@ npm run dev          # http://localhost:3000
 
 三個變數**只設一半會直接報錯**，正式環境（`NODE_ENV=production`）沒設也會報錯，不會默默改用本機資料庫。
 
+`vercel.json` 把函式固定在新加坡（`sin1`），跟 Supabase 專案（`ap-southeast-1`）同一區；換資料庫地區時要一起改，否則每次查詢都要跨區。
+
 ## 指令
 
 | 指令 | 用途 |
