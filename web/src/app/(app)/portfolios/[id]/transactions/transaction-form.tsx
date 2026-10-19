@@ -2,16 +2,35 @@
 
 import Link from "next/link";
 import { startTransition, useActionState, useState } from "react";
-import { createTransactionAction, type FormState } from "@/app/actions";
+import { correctTransactionAction, createTransactionAction, type FormState } from "@/app/actions";
 import { formatDecimal } from "@/lib/format";
 import { type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { D } from "@/lib/money/decimal";
+
+/** 表單欄位的初始值（更正時帶入原交易的內容） */
+export interface TransactionFormValues {
+  type: Phase1Type;
+  accountId: string;
+  tradeDate: string;
+  settlementDate: string;
+  symbol: string;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+  fee: string;
+  tax: string;
+  otherCost: string;
+  notes: string;
+}
 
 interface Props {
   portfolioId: string;
   today: string;
   accounts: { id: string; name: string; currency: string }[];
   assets: { market: string; symbol: string; name: string }[];
+  initial?: Partial<TransactionFormValues>;
+  /** 更正這筆交易：送出時沖銷它，再依表單內容新增一筆 */
+  correctionOf?: string;
 }
 
 const TYPE_GROUPS: { label: string; types: Phase1Type[] }[] = [
@@ -31,17 +50,18 @@ const MARKETS = [
 type Market = (typeof MARKETS)[number]["value"];
 const marketFor = (currency: string | undefined): Market | null => MARKETS.find((m) => m.currency === currency)?.value ?? null;
 
-export function TransactionForm({ portfolioId, today, accounts, assets }: Props) {
-  const [state, action, pending] = useActionState<FormState, FormData>(createTransactionAction.bind(null, portfolioId), {});
+export function TransactionForm({ portfolioId, today, accounts, assets, initial = {}, correctionOf }: Props) {
+  const submit = correctionOf ? correctTransactionAction.bind(null, portfolioId, correctionOf) : createTransactionAction.bind(null, portfolioId);
+  const [state, action, pending] = useActionState<FormState, FormData>(submit, {});
   // 每次打開表單產生一個送出識別碼：重複點擊或網路重送都只會入帳一次
   const [clientRequestId] = useState(() => crypto.randomUUID());
-  const [type, setType] = useState<Phase1Type>("buy");
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const [type, setType] = useState<Phase1Type>(initial.type ?? "buy");
+  const [accountId, setAccountId] = useState(initial.accountId ?? accounts[0]?.id ?? "");
   const account = accounts.find((a) => a.id === accountId);
   const market = marketFor(account?.currency);
-  const [symbol, setSymbol] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
+  const [symbol, setSymbol] = useState(initial.symbol ?? "");
+  const [quantity, setQuantity] = useState(initial.quantity ?? "");
+  const [unitPrice, setUnitPrice] = useState(initial.unitPrice ?? "");
 
   const rule = TRANSACTION_RULES[type];
   const known = assets.find((a) => a.market === market && a.symbol === symbol.trim().toUpperCase());
@@ -98,14 +118,14 @@ export function TransactionForm({ portfolioId, today, accounts, assets }: Props)
         </label>
         <label className="field">
           <span>交易日</span>
-          <input className="input num" type="date" name="tradeDate" defaultValue={today} max={today} required aria-invalid={invalid("tradeDate")} />
+          <input className="input num" type="date" name="tradeDate" defaultValue={initial.tradeDate ?? today} max={today} required aria-invalid={invalid("tradeDate")} />
           {err("tradeDate") ? <span className="field-error">{err("tradeDate")}</span> : null}
         </label>
         <label className="field">
           <span>
             交割日<small>選填，現金以此日入帳</small>
           </span>
-          <input className="input num" type="date" name="settlementDate" aria-invalid={invalid("settlementDate")} />
+          <input className="input num" type="date" name="settlementDate" defaultValue={initial.settlementDate} aria-invalid={invalid("settlementDate")} />
           {err("settlementDate") ? <span className="field-error">{err("settlementDate")}</span> : null}
         </label>
       </div>
@@ -192,7 +212,7 @@ export function TransactionForm({ portfolioId, today, accounts, assets }: Props)
       ) : (
         <label className="field sm:max-w-[260px]">
           <span>{type === "dividend" || type === "interest" ? "稅前金額" : "金額"}</span>
-          <input className="input num" name="amount" inputMode="decimal" placeholder="0" aria-invalid={invalid("amount")} />
+          <input className="input num" name="amount" inputMode="decimal" placeholder="0" defaultValue={initial.amount} aria-invalid={invalid("amount")} />
           {err("amount") ? <span className="field-error">{err("amount")}</span> : null}
         </label>
       )}
@@ -203,7 +223,7 @@ export function TransactionForm({ portfolioId, today, accounts, assets }: Props)
             <span>
               手續費<small>選填</small>
             </span>
-            <input className="input num" name="fee" inputMode="decimal" placeholder="0" aria-invalid={invalid("fee")} />
+            <input className="input num" name="fee" inputMode="decimal" placeholder="0" defaultValue={initial.fee} aria-invalid={invalid("fee")} />
             {err("fee") ? <span className="field-error">{err("fee")}</span> : null}
           </label>
           <label className="field">
@@ -211,14 +231,14 @@ export function TransactionForm({ portfolioId, today, accounts, assets }: Props)
               {taxLabel}
               <small>選填</small>
             </span>
-            <input className="input num" name="tax" inputMode="decimal" placeholder="0" aria-invalid={invalid("tax")} />
+            <input className="input num" name="tax" inputMode="decimal" placeholder="0" defaultValue={initial.tax} aria-invalid={invalid("tax")} />
             {err("tax") ? <span className="field-error">{err("tax")}</span> : null}
           </label>
           <label className="field">
             <span>
               其他費用<small>選填</small>
             </span>
-            <input className="input num" name="otherCost" inputMode="decimal" placeholder="0" aria-invalid={invalid("otherCost")} />
+            <input className="input num" name="otherCost" inputMode="decimal" placeholder="0" defaultValue={initial.otherCost} aria-invalid={invalid("otherCost")} />
             {err("otherCost") ? <span className="field-error">{err("otherCost")}</span> : null}
           </label>
           <p className="text-xs text-ink-3 sm:col-span-3">
@@ -235,15 +255,25 @@ export function TransactionForm({ portfolioId, today, accounts, assets }: Props)
         <span>
           備註<small>選填，最多 500 字</small>
         </span>
-        <input className="input" name="notes" maxLength={500} />
+        <input className="input" name="notes" maxLength={500} defaultValue={initial.notes} />
       </label>
 
+      {correctionOf ? (
+        <label className="field">
+          <span>
+            更正原因<small>選填，最多 200 字，會記在稽核紀錄</small>
+          </span>
+          <input className="input" name="reason" maxLength={200} placeholder="例如：單價打錯" aria-invalid={invalid("reason")} />
+          {err("reason") ? <span className="field-error">{err("reason")}</span> : null}
+        </label>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-end gap-3 border-t-2 border-ink pt-5">
-        <Link href={`/portfolios/${portfolioId}`} className="btn btn-quiet">
+        <Link href={correctionOf ? `/portfolios/${portfolioId}/transactions/${correctionOf}` : `/portfolios/${portfolioId}`} className="btn btn-quiet">
           取消
         </Link>
         <button className="btn btn-sun" type="submit" disabled={pending}>
-          {pending ? "記錄中…" : `記錄${rule.label}`}
+          {correctionOf ? (pending ? "更正中…" : "送出更正") : pending ? "記錄中…" : `記錄${rule.label}`}
         </button>
       </div>
     </form>

@@ -2,7 +2,7 @@
 
 STACK 是把市場分析、個人資產與 AI 研究放在一起的投資平台。產品規格在上一層的 `spec.md`，設計稿在 `../design/`。
 
-目前完成的是規格第 16 節的 **Phase 1：基礎帳本**：投資組合、帳戶、資產、手動交易、現金帳本、FIFO 持倉批次與賣出分配，以及對應的 API、基本畫面與測試。
+目前完成的是規格第 16 節的 **Phase 1：基礎帳本**：投資組合、帳戶、資產、手動交易、現金帳本、FIFO 持倉批次與賣出分配，以及對應的 API、基本畫面與測試。另外補上了交易的**沖銷與更正**（含稽核紀錄）。
 
 技術：Next.js 16.4（App Router）＋ TypeScript ＋ Tailwind 4 ＋ Drizzle ORM ＋ PostgreSQL（正式環境用 Supabase，本機與測試用 PGlite）＋ Vitest。
 
@@ -23,9 +23,13 @@ npm run dev          # http://localhost:3000
 ## 接上 Supabase（正式環境）
 
 1. 建立 Supabase 專案。
-2. 到 **SQL Editor** 貼上並執行 `supabase/migrations/20261016000000_phase1_ledger.sql`（可重複執行）。
+2. 到 **SQL Editor** 依檔名順序貼上並執行 `supabase/migrations/` 裡的每一份（都可重複執行）：
+   1. `20261016000000_phase1_ledger.sql`
+   2. `20261019000000_reversals.sql`（沖銷、更正與稽核紀錄）
+
+   - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
-   - 跑完用下面這段確認權限：應該只有 `authenticated`，而且 `transactions`、`cash_ledger` 只有 SELECT 與 INSERT。
+   - 跑完用下面這段確認權限：應該只有 `authenticated`，而且 `transactions`、`cash_ledger`、`audit_log` 只有 SELECT 與 INSERT。
      ```sql
      select grantee, table_name, string_agg(privilege_type, ', ' order by privilege_type)
      from information_schema.role_table_grants where table_schema = 'stack'
@@ -70,7 +74,14 @@ tests/                 Vitest
 
 - **資料表放在 `stack` schema，不在 `public`。** Supabase 的 Data API 只公開 `public`，所以前端拿 anon key 也碰不到帳本；所有寫入都經過伺服器的交易服務。
 - **兩道權限防線。** 服務層每個查詢都帶 `user_id` 條件；另外 `withUser` 在資料庫交易內 `set local role authenticated` 並帶入使用者 ID，RLS（`user_id = auth.uid()`）會再擋一次。每張子表都用 `(父表 id, user_id)` 複合外鍵，資料庫保證資料不會掛到別人的帳戶下。
-- **原始紀錄只能新增。** `transactions`、`cash_ledger` 沒有 update／delete 權限，另有 trigger 擋下任何角色的改寫（包括在 SQL Editor 裡）；之後的更正會用沖銷交易（`reversal_of_id`）。刪除只在同一個交易內 `set local stack.allow_purge = 'on'` 時允許，留給之後的「刪除我的資料」流程。
+- **原始紀錄只能新增。** `transactions`、`cash_ledger`、`audit_log` 沒有 update／delete 權限，另有 trigger 擋下任何角色的改寫（包括在 SQL Editor 裡）。刪除只在同一個交易內 `set local stack.allow_purge = 'on'` 時允許，留給之後的「刪除我的資料」流程。
+- **記錯了用沖銷與更正。**
+  - **沖銷**：新增一筆內容相同的沖銷交易（`reversal_of_id` 指向原交易），現金帳本以原交易的入帳日記一筆反向金額，持倉重播時原交易與沖銷交易成對排除。
+  - **更正**：在同一個資料庫交易內「沖銷原交易＋依新內容新增一筆」，最後才重建 FIFO。所以把買進數量改少時，只要之後的賣出仍然夠賣，就不會被「先沖銷」的中間狀態擋下。新交易可以換類型、資產或帳戶（同一個投資組合內）。
+  - 每次沖銷或更正都在 `audit_log` 留一筆稽核紀錄：原交易、沖銷交易、更正後的新交易、原因、因此重算了幾筆其他賣出。
+  - 資料庫保證：一筆交易只能被沖銷一次（唯一索引）、沖銷交易不能再被沖銷、沖銷交易的內容必須與原交易相同（trigger）。
+  - 沖銷買進後，如果之後的賣出會變成持倉不足，整筆拒絕，並指出是哪一筆賣出。
+  - 原交易與沖銷交易都留在交易列表（淡化顯示、標「已沖銷」或「已更正」），組合的交易筆數只算有效的交易。
 - **資產主檔分成共用與私人。** `created_by` 為空的是共用主檔（migration 內附常見台股與美股，之後由行情資料來源維護）；使用者自己新增的代號只有本人看得到，名稱與類別不會影響別人，也不會洩漏誰持有冷門代號。
 - **持倉批次是衍生資料。** 每次新增買賣，會把同一帳戶＋資產的所有買賣依時間重播一次，重建 `position_lots` 與 `lot_disposals`。補登較早日期的交易也會得到一致的 FIFO 結果，畫面會告訴你重新計算了幾筆既有賣出；如果補登會讓任何時點的持倉變負，整筆拒絕。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
@@ -102,16 +113,19 @@ tests/                 Vitest
 | GET | `/api/portfolios/:id/summary` | 帳本彙總（各幣別分開）與各帳戶現金 |
 | GET | `/api/transactions?portfolioId=&accountId=&limit=` | 交易列表 |
 | POST | `/api/transactions` | 新增交易 |
-| GET | `/api/transactions/:id` | 交易明細與 FIFO 分配 |
+| GET | `/api/transactions/:id` | 交易明細、FIFO 分配與稽核紀錄 |
+| PATCH | `/api/transactions/:id` | 更正交易：沖銷原交易並依 body 新增一筆（格式同新增交易，另可帶 `reason`）；`data` 是新交易 |
+| POST | `/api/transactions/:id/reversal` | 沖銷交易，body `{ clientRequestId, reason? }`；`data` 是沖銷交易 |
 | GET | `/api/assets?q=` | 搜尋資產主檔 |
 
-未登入回 401；別人的資源一律回 404（不透露是否存在）。
+未登入回 401；別人的資源一律回 404（不透露是否存在）。沖銷與更正也用 `clientRequestId` 防重複送出；已經沖銷過的交易回 409 `already_reversed`，沖銷交易本身回 409 `not_reversible`，更正內容跟原交易一樣回 400 `no_change`。
 
 ## Phase 1 沒有做的事
 
 - 行情、匯率、市值、未實現損益、總淨值、XIRR、TWR、基準比較（Phase 3、4）。畫面上明確標示「尚無行情」，不顯示估計值。
 - 快速淨值（庫存快照）模式、CSV 匯入（Phase 2）。
-- 交易更正／沖銷、帳戶間轉帳、換匯、股票分割、帳戶與組合的封存／刪除、使用者資料匯出與刪除。
-- 重新計算的稽核紀錄（目前只在畫面提示重算了幾筆）。
+- 帳戶間轉帳、換匯、股票分割、帳戶與組合的封存／刪除、使用者資料匯出與刪除。
+- 補登較早日期的買賣造成的重算還沒有寫稽核紀錄（只在畫面提示重算了幾筆）；沖銷與更正的重算有。
+- 沖銷交易與更正後的新交易在同一個資料庫交易內寫入，`created_at` 相同，列表中兩者的先後順序不固定（不影響計算：沖銷交易不參與 FIFO）。
 - 損益顏色固定為台灣慣例（紅賺綠虧，並附 ＋／− 與文字）；切換國際慣例待設定頁。
 - 現金餘額允許為負（常見原因是還沒記入金），畫面會標示「現金為負」。

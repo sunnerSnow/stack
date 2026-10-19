@@ -5,16 +5,19 @@ import { Amount, Pnl } from "@/components/money";
 import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
-import { MARKET_LABEL } from "@/lib/format";
+import { formatDateTime, MARKET_LABEL } from "@/lib/format";
 import { getTransaction } from "@/lib/services/transactions";
+import { ReverseForm } from "./reverse-form";
 
 export const metadata: Metadata = { title: "交易明細" };
 
 const TAX_KIND: Record<string, string> = { transaction_tax: "交易稅", withholding_tax: "扣繳稅", other: "其他稅" };
+const AUDIT_ACTION: Record<string, string> = { reverse: "沖銷", correct: "更正" };
 
-export default async function TransactionPage({ params }: PageProps<"/portfolios/[id]/transactions/[txId]">) {
+export default async function TransactionPage({ params, searchParams }: PageProps<"/portfolios/[id]/transactions/[txId]">) {
   const user = await requireUser();
   const { id, txId } = await params;
+  const { reversed, recalc } = await searchParams;
   let detail;
   try {
     detail = await getTransaction(await getDb(), user.id, txId);
@@ -22,7 +25,13 @@ export default async function TransactionPage({ params }: PageProps<"/portfolios
     if (error instanceof AppError && error.status === 404) notFound();
     throw error;
   }
-  const { transaction: t, disposals } = detail;
+  const { transaction: t, disposals, audit } = detail;
+  const href = (transactionId: string) => `/portfolios/${id}/transactions/${transactionId}`;
+  const recalculated = typeof recalc === "string" ? Number.parseInt(recalc, 10) : 0;
+  // 這筆被沖銷（或更正）的那次紀錄、這筆是哪一次更正的結果
+  const reversal = audit.find((a) => a.transactionId === t.id);
+  const correction = audit.find((a) => a.replacementId === t.id);
+  const effective = !t.reversalOfId && !t.reversedById;
 
   const rows: [string, React.ReactNode][] = [
     ["交易日", <span key="d" className="num">{t.tradeDate}</span>],
@@ -39,7 +48,7 @@ export default async function TransactionPage({ params }: PageProps<"/portfolios
     ["外部現金流", t.externalFlowType === "contribution" ? "入金（外部投入）" : t.externalFlowType === "withdrawal" ? "出金（外部提領）" : "否"],
     ["來源", t.source === "manual" ? "手動輸入" : t.source],
     ["備註", t.notes ?? "—"],
-    ["建立時間", <span key="ca" className="num">{t.createdAt}</span>],
+    ["建立時間", <span key="ca" className="num">{formatDateTime(t.createdAt)}</span>],
   ];
 
   return (
@@ -50,13 +59,49 @@ export default async function TransactionPage({ params }: PageProps<"/portfolios
             回投資組合
           </Link>
         </p>
-        <h1 className="mt-2 text-[28px] font-black">
-          {t.typeLabel} {t.asset ? <span className="num">{t.asset.symbol}</span> : null}
+        <h1 className="mt-2 flex flex-wrap items-center gap-3 text-[28px] font-black">
+          <span>
+            {t.typeLabel} {t.asset ? <span className="num">{t.asset.symbol}</span> : null}
+          </span>
+          {t.reversedById ? <span className="tag tag-warn">{t.replacedById ? "已更正" : "已沖銷"}</span> : null}
+          {t.correctionOfId ? <span className="tag tag-sea">更正後</span> : null}
         </h1>
         <p className="mt-1 text-xs text-ink-3 num">ID {t.id}</p>
       </div>
 
-      <section className="panel">
+      {reversed ? (
+        <p className="success">
+          已沖銷：這筆不再計入現金與持倉，原交易與沖銷交易都保留在紀錄裡。
+          {recalculated > 0 ? `依 FIFO 重新計算了 ${recalculated} 筆既有賣出的已實現損益。` : ""}
+        </p>
+      ) : null}
+
+      {t.reversalOfId ? (
+        <p className="notice">
+          這是沖銷交易，用來抵銷 <Link href={href(t.reversalOfId)} className="font-bold underline">原交易</Link>
+          ：內容相同、現金反向入帳，兩筆都不再計入持倉。
+        </p>
+      ) : null}
+      {t.reversedById ? (
+        <p className="notice">
+          這筆已在 <span className="num">{reversal ? formatDateTime(reversal.createdAt) : "—"}</span> {t.replacedById ? "更正" : "沖銷"}
+          ，不再計入現金與持倉（見 <Link href={href(t.reversedById)} className="font-bold underline">沖銷交易</Link>
+          {t.replacedById ? (
+            <>
+              、<Link href={href(t.replacedById)} className="font-bold underline">更正後的交易</Link>
+            </>
+          ) : null}
+          ）。{reversal?.reason ? `原因：${reversal.reason}` : ""}
+        </p>
+      ) : null}
+      {t.correctionOfId ? (
+        <p className="success">
+          這筆是更正後的交易，取代 <Link href={href(t.correctionOfId)} className="font-bold underline">原交易</Link>。
+          {correction?.reason ? `原因：${correction.reason}` : ""}
+        </p>
+      ) : null}
+
+      <section className={`panel ${effective ? "" : "opacity-75"}`}>
         <dl className="grid sm:grid-cols-2">
           {rows.map(([label, value]) => (
             <div key={label} className="flex items-baseline justify-between gap-4 border-b border-line px-5 py-3 sm:odd:border-r">
@@ -67,7 +112,7 @@ export default async function TransactionPage({ params }: PageProps<"/portfolios
         </dl>
       </section>
 
-      {t.type === "sell" ? (
+      {t.type === "sell" && effective ? (
         <section className="panel min-w-0">
           <div className="panel-head">
             <h2>FIFO 消耗的批次</h2>
@@ -108,6 +153,76 @@ export default async function TransactionPage({ params }: PageProps<"/portfolios
           <p className="border-t-2 border-ink px-5 py-3 text-xs text-ink-2">
             賣出損益 ＝ 分配收入 − 手續費 − 交易稅 − 其他費用 − 分配成本。費用依數量比例分配到各批次。
           </p>
+        </section>
+      ) : null}
+
+      {effective ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>更正或沖銷</h2>
+            <span className="text-xs text-ink-2">原交易會保留，不會被改寫</span>
+          </div>
+          <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-x-2 sm:divide-y-0">
+            <div className="p-5">
+              <h3 className="font-bold">內容記錯了</h3>
+              <p className="mt-1 text-sm leading-relaxed text-ink-2">填入正確的內容。系統會沖銷這筆、新增一筆更正後的交易，並依 FIFO 重算持倉與已實現損益。</p>
+              <Link href={`${href(t.id)}/correct`} className="btn btn-sun mt-3">
+                更正這筆
+              </Link>
+            </div>
+            <div className="p-5">
+              <h3 className="font-bold">這筆不該存在</h3>
+              <p className="mt-1 text-sm leading-relaxed text-ink-2">例如重複記了。沖銷後現金與持倉還原；如果之後的賣出會因此持倉不足，會被拒絕。</p>
+              <details className="group mt-3">
+                <summary className="btn cursor-pointer list-none">
+                  <span className="group-open:hidden">沖銷這筆…</span>
+                  <span className="hidden group-open:inline">取消</span>
+                </summary>
+                <ReverseForm portfolioId={id} transactionId={t.id} />
+              </details>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {audit.length > 0 ? (
+        <section className="panel min-w-0">
+          <div className="panel-head">
+            <h2>稽核紀錄</h2>
+            <span className="text-xs text-ink-2">只能新增，不會被改寫</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>動作</th>
+                  <th>原因</th>
+                  <th className="r">重算賣出</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {audit.map((a) => (
+                  <tr key={a.reversalId}>
+                    <td className="num whitespace-nowrap">{formatDateTime(a.createdAt)}</td>
+                    <td className="whitespace-nowrap">{AUDIT_ACTION[a.action] ?? a.action}</td>
+                    <td className="text-ink-2">{a.reason ?? "—"}</td>
+                    <td className="r num">{a.recalculatedSells}</td>
+                    <td className="r whitespace-nowrap text-xs font-bold">
+                      {[
+                        a.transactionId !== t.id ? <Link key="o" href={href(a.transactionId)} className="hover:underline">原交易</Link> : null,
+                        a.reversalId !== t.id ? <Link key="r" href={href(a.reversalId)} className="hover:underline">沖銷交易</Link> : null,
+                        a.replacementId && a.replacementId !== t.id ? <Link key="n" href={href(a.replacementId)} className="hover:underline">更正後</Link> : null,
+                      ]
+                        .filter(Boolean)
+                        .flatMap((link, i) => (i === 0 ? [link] : [" · ", link]))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
     </div>

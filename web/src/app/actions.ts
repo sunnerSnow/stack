@@ -13,7 +13,7 @@ import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { createAccount, createPortfolio } from "@/lib/services/portfolios";
-import { postTransaction } from "@/lib/services/transactions";
+import { correctTransaction, postTransaction, reverseTransaction } from "@/lib/services/transactions";
 
 /**
  * Server Actions 都是公開的 POST 端點：每一個都自己檢查登入，輸入一律交給服務層驗證。
@@ -124,12 +124,11 @@ export async function createAccountAction(portfolioId: string, _prev: FormState,
 // 交易
 // ---------------------------------------------------------------------------
 
-export async function createTransactionAction(portfolioId: string, _prev: FormState, formData: FormData): Promise<FormState> {
-  const user = await sessionOrRedirect();
+/** 只取這個交易類型需要的欄位；正負號與成交金額由服務層決定 */
+function transactionInputFromForm(formData: FormData) {
   const type = text(formData, "type") ?? "";
   const rule = isPhase1Type(type) ? TRANSACTION_RULES[type] : null;
-  // 只送出這個交易類型需要的欄位；正負號與成交金額由服務層決定
-  const input = {
+  return {
     clientRequestId: text(formData, "clientRequestId"),
     accountId: text(formData, "accountId"),
     type,
@@ -147,14 +146,54 @@ export async function createTransactionAction(portfolioId: string, _prev: FormSt
     otherCost: rule?.allowsCosts ? text(formData, "otherCost") : undefined,
     notes: text(formData, "notes"),
   };
+}
 
+export async function createTransactionAction(portfolioId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await sessionOrRedirect();
   let target: string;
   try {
-    const { transaction, duplicate, recalculatedSells } = await postTransaction(await getDb(), user.id, input);
+    const { transaction, duplicate, recalculatedSells } = await postTransaction(await getDb(), user.id, transactionInputFromForm(formData));
     const params = new URLSearchParams({ posted: transaction.id });
     if (duplicate) params.set("duplicate", "1");
     if (recalculatedSells > 0) params.set("recalc", String(recalculatedSells));
     target = `/portfolios/${portfolioId}?${params}`;
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  redirect(target);
+}
+
+/** 更正：沖銷原交易，再依表單內容新增一筆 */
+export async function correctTransactionAction(portfolioId: string, transactionId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  let target: string;
+  try {
+    const { replacement, recalculatedSells } = await correctTransaction(await getDb(), user.id, transactionId, {
+      ...transactionInputFromForm(formData),
+      reason: text(formData, "reason"),
+    });
+    const params = new URLSearchParams({ posted: replacement.id, corrected: "1" });
+    if (recalculatedSells > 0) params.set("recalc", String(recalculatedSells));
+    target = `/portfolios/${portfolioId}?${params}`;
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  redirect(target);
+}
+
+export async function reverseTransactionAction(portfolioId: string, transactionId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  let target: string;
+  try {
+    const { recalculatedSells } = await reverseTransaction(await getDb(), user.id, transactionId, {
+      clientRequestId: text(formData, "clientRequestId"),
+      reason: text(formData, "reason"),
+    });
+    const params = new URLSearchParams({ reversed: "1" });
+    if (recalculatedSells > 0) params.set("recalc", String(recalculatedSells));
+    target = `/portfolios/${portfolioId}/transactions/${transactionId}?${params}`;
   } catch (error) {
     return toFormState(error);
   }

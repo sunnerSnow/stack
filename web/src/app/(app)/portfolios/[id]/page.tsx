@@ -39,7 +39,7 @@ function CurrencyLines({ items, pnl = false }: { items: CurrencyAmount[]; pnl?: 
 export default async function PortfolioPage({ params, searchParams }: PageProps<"/portfolios/[id]">) {
   const user = await requireUser();
   const { id } = await params;
-  const { posted, duplicate, recalc } = await searchParams;
+  const { posted, duplicate, recalc, corrected } = await searchParams;
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
@@ -77,10 +77,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
 
       {postedTx ? (
         <p className="success">
-          {duplicate ? "這筆已經送出過，沒有重複入帳：" : "已記錄："}
+          {corrected ? "已更正（原交易已沖銷並保留）：" : duplicate ? "這筆已經送出過，沒有重複入帳：" : "已記錄："}
           {postedTx.tradeDate} {postedTx.typeLabel} {postedTx.asset ? `${postedTx.asset.symbol} ${postedTx.asset.name}` : ""}
           {postedTx.quantity ? ` ${postedTx.quantity} 股` : ""}
-          {recalculated > 0 ? `。補登這筆後，依 FIFO 重新計算了 ${recalculated} 筆既有賣出的已實現損益。` : ""}
+          {recalculated > 0 ? `。${corrected ? "更正" : "補登"}這筆後，依 FIFO 重新計算了 ${recalculated} 筆既有賣出的已實現損益。` : ""}
         </p>
       ) : null}
 
@@ -232,7 +232,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
       <section className="panel min-w-0">
         <div className="panel-head">
           <h2>交易紀錄</h2>
-          <span className="text-xs text-ink-2">最近 {transactions.length} 筆 · 只能新增，不會被改寫</span>
+          <span className="text-xs text-ink-2">最近 {transactions.length} 筆 · 只能新增，記錯了用沖銷更正</span>
         </div>
         {transactions.length === 0 ? (
           <p className="p-6 text-sm text-ink-2">還沒有交易。</p>
@@ -256,10 +256,12 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
               </thead>
               <tbody>
                 {transactions.map((t) => (
-                  <tr key={t.id}>
+                  // 已沖銷的原交易與沖銷交易都不計入現金與持倉：淡化顯示
+                  <tr key={t.id} className={t.reversalOfId || t.reversedById ? "opacity-60" : undefined}>
                     <td className="num whitespace-nowrap">{t.tradeDate}</td>
-                    <td>
-                      <span className={`tag ${t.type === "buy" ? "tag-sea" : t.type === "sell" ? "tag-sun" : ""}`}>{t.typeLabel}</span>
+                    <td className="whitespace-nowrap">
+                      <span className={`tag ${t.reversalOfId ? "" : t.type === "buy" ? "tag-sea" : t.type === "sell" ? "tag-sun" : ""}`}>{t.typeLabel}</span>
+                      {t.reversedById ? <span className="tag tag-warn ml-1">{t.replacedById ? "已更正" : "已沖銷"}</span> : null}
                     </td>
                     <td>{t.asset ? <span className="num font-bold">{t.asset.symbol}</span> : <span className="text-ink-3">—</span>}</td>
                     <td className="text-ink-2 whitespace-nowrap">{t.accountName}</td>

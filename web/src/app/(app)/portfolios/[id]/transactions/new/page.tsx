@@ -7,7 +7,7 @@ import { AppError } from "@/lib/errors";
 import { todayInTaipei } from "@/lib/ledger/input";
 import { searchAssets } from "@/lib/services/assets";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
-import { TransactionForm } from "./transaction-form";
+import { TransactionForm } from "../transaction-form";
 
 export const metadata: Metadata = { title: "新增交易" };
 

@@ -156,6 +156,27 @@ export function normalizeTransactionInput(raw: unknown, opts: { today?: string }
   };
 }
 
+const reasonText = optional(z.string().trim().max(200, "原因最多 200 字"));
+
+/** 沖銷：只需要送出識別碼與（選填的）原因 */
+export const reversalInputSchema = z.object({
+  clientRequestId: z.uuid("缺少送出識別碼，請重新整理頁面").transform((s) => s.toLowerCase()),
+  reason: reasonText,
+});
+
+export function normalizeReversalInput(raw: unknown): { clientRequestId: string; reason: string | null } {
+  const parsed = reversalInputSchema.safeParse(raw);
+  if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
+  return { clientRequestId: parsed.data.clientRequestId, reason: parsed.data.reason ?? null };
+}
+
+/** 更正：新交易的完整內容（同新增交易）加上選填的原因 */
+export function normalizeCorrectionInput(raw: unknown, opts: { today?: string } = {}): NormalizedTransaction & { reason: string | null } {
+  const parsed = z.object({ reason: reasonText }).safeParse(raw);
+  if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
+  return { ...normalizeTransactionInput(raw, opts), reason: parsed.data.reason ?? null };
+}
+
 export const portfolioInputSchema = z.object({
   name: z.string({ error: "請輸入名稱" }).trim().min(1, "請輸入名稱").max(80, "名稱最多 80 字"),
   baseCurrency: z.enum(CURRENCIES, "請選擇基準幣別"),

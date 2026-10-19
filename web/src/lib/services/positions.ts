@@ -4,6 +4,7 @@ import { accounts, assets, cashLedger, lotDisposals, positionLots, transactions 
 import { withUser } from "@/lib/db/with-user";
 import { D, toPlain } from "@/lib/money/decimal";
 import { requirePortfolio } from "@/lib/services/portfolios";
+import { isEffectiveTransaction } from "@/lib/services/transactions";
 
 export interface HoldingDto {
   accountId: string;
@@ -156,11 +157,12 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
       .where(and(eq(cashLedger.userId, userId), inPortfolio, inArray(cashLedger.eventType, ["deposit", "withdrawal"])))
       .groupBy(cashLedger.currency);
 
+    // 交易筆數不含被沖銷的原交易與沖銷交易
     const [{ n }] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(transactions)
       .innerJoin(accounts, eq(accounts.id, transactions.accountId))
-      .where(and(eq(transactions.userId, userId), inPortfolio));
+      .where(and(eq(transactions.userId, userId), inPortfolio, isEffectiveTransaction()));
 
     return {
       cash: byCurrency(cash),

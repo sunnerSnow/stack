@@ -1,7 +1,7 @@
-import { boolean, char, date, jsonb, numeric, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, char, date, integer, jsonb, numeric, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /**
- * 與 supabase/migrations/20261016000000_phase1_ledger.sql 對應的 Drizzle schema。
+ * 與 supabase/migrations/ 對應的 Drizzle schema。
  * 約束、RLS 與權限以 SQL migration 為準；這裡只描述欄位，讓查詢有型別。
  * numeric 欄位一律以字串讀寫（不經過 JavaScript number）。
  */
@@ -133,4 +133,17 @@ export const lotDisposals = stack.table("lot_disposals", {
   createdAt: createdAt(),
 });
 
-export const schema = { users, portfolios, accounts, assets, transactions, cashLedger, positionLots, lotDisposals };
+/** 稽核紀錄（20261019000000_reversals.sql）：沖銷與更正，只能新增 */
+export const auditLog = stack.table("audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  action: text("action", { enum: ["reverse", "correct"] }).notNull(),
+  transactionId: uuid("transaction_id"),
+  reversalId: uuid("reversal_id"),
+  replacementId: uuid("replacement_id"),
+  reason: text("reason"),
+  recalculatedSells: integer("recalculated_sells").notNull().default(0),
+  createdAt: createdAt(),
+});
+
+export const schema = { users, portfolios, accounts, assets, transactions, cashLedger, positionLots, lotDisposals, auditLog };
