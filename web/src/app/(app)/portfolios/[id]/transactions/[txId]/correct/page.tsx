@@ -7,7 +7,6 @@ import { AppError } from "@/lib/errors";
 import { todayInTaipei } from "@/lib/ledger/input";
 import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { D } from "@/lib/money/decimal";
-import { searchAssets } from "@/lib/services/assets";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
 import { getTransaction } from "@/lib/services/transactions";
 import { TransactionForm } from "../../transaction-form";
@@ -29,7 +28,7 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
     throw error;
   }
   const t = detail.transaction;
-  const [accounts, assets] = await Promise.all([listAccounts(db, user.id, id), searchAssets(db, user.id, null)]);
+  const accounts = await listAccounts(db, user.id, id);
   if (!accounts.some((a) => a.id === t.accountId)) notFound();
   // 沖銷交易、已沖銷或已更正過的交易不能再更正
   if (t.reversalOfId || t.reversedById || !isPhase1Type(t.type)) redirect(`/portfolios/${id}/transactions/${txId}`);
@@ -54,7 +53,6 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
           portfolioId={id}
           today={todayInTaipei()}
           accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
-          assets={assets.map((a) => ({ market: a.market, symbol: a.symbol, name: a.name }))}
           correctionOf={t.id}
           initial={{
             type: t.type,

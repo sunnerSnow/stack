@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useActionState, useState } from "react";
+import { startTransition, useActionState, useEffect, useState } from "react";
 import { correctTransactionAction, createTransactionAction, type FormState } from "@/app/actions";
 import { formatDecimal } from "@/lib/format";
 import { type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
@@ -27,7 +27,6 @@ interface Props {
   portfolioId: string;
   today: string;
   accounts: { id: string; name: string; currency: string }[];
-  assets: { market: string; symbol: string; name: string }[];
   initial?: Partial<TransactionFormValues>;
   /** 更正這筆交易：送出時沖銷它，再依表單內容新增一筆 */
   correctionOf?: string;
@@ -50,7 +49,37 @@ const MARKETS = [
 type Market = (typeof MARKETS)[number]["value"];
 const marketFor = (currency: string | undefined): Market | null => MARKETS.find((m) => m.currency === currency)?.value ?? null;
 
-export function TransactionForm({ portfolioId, today, accounts, assets, initial = {}, correctionOf }: Props) {
+interface AssetHit {
+  symbol: string;
+  name: string;
+  active: boolean;
+  shared: boolean;
+}
+
+/** 輸入代號或名稱時查資產主檔（停 200ms 才查，新的輸入會取消上一個請求） */
+function useAssetSearch(market: Market | null, query: string) {
+  const term = query.trim();
+  const key = `${market}:${term.toUpperCase()}`;
+  const [result, setResult] = useState<{ key: string; hits: AssetHit[] } | null>(null);
+  useEffect(() => {
+    if (!market || !term) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/assets?market=${market}&limit=12&q=${encodeURIComponent(term)}`, { signal: controller.signal })
+        .then((res) => (res.ok ? res.json() : { data: [] }))
+        .then((body: { data?: AssetHit[] }) => setResult({ key, hits: body.data ?? [] }))
+        .catch(() => {});
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [market, term, key]);
+  const fresh = result?.key === key ? result.hits : null;
+  return { hits: fresh ?? [], loading: Boolean(market && term) && fresh === null };
+}
+
+export function TransactionForm({ portfolioId, today, accounts, initial = {}, correctionOf }: Props) {
   const submit = correctionOf ? correctTransactionAction.bind(null, portfolioId, correctionOf) : createTransactionAction.bind(null, portfolioId);
   const [state, action, pending] = useActionState<FormState, FormData>(submit, {});
   // 每次打開表單產生一個送出識別碼：重複點擊或網路重送都只會入帳一次
@@ -64,7 +93,8 @@ export function TransactionForm({ portfolioId, today, accounts, assets, initial 
   const [unitPrice, setUnitPrice] = useState(initial.unitPrice ?? "");
 
   const rule = TRANSACTION_RULES[type];
-  const known = assets.find((a) => a.market === market && a.symbol === symbol.trim().toUpperCase());
+  const search = useAssetSearch(rule.asset === "required" ? market : null, symbol);
+  const known = search.hits.find((a) => a.symbol === symbol.trim().toUpperCase());
   const gross = DECIMAL_RE.test(quantity) && DECIMAL_RE.test(unitPrice) ? new D(quantity).times(unitPrice).toFixed() : null;
   const err = (field: string) => state.fieldErrors?.[field];
   const invalid = (field: string) => Boolean(err(field));
@@ -145,25 +175,32 @@ export function TransactionForm({ portfolioId, today, accounts, assets, initial 
               list="known-assets"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}
-              placeholder={market === "TW" ? "2330" : "AAPL"}
+              placeholder={market === "TW" ? "2330 或 台積" : "AAPL 或 Apple"}
               autoComplete="off"
               aria-invalid={invalid("asset.symbol")}
             />
             <datalist id="known-assets">
-              {assets
-                .filter((a) => a.market === market)
-                .map((a) => (
-                  <option key={a.symbol} value={a.symbol}>
-                    {a.name}
-                  </option>
-                ))}
+              {search.hits.map((a) => (
+                <option key={a.symbol} value={a.symbol}>
+                  {a.name}
+                  {a.active ? "" : "（已下市）"}
+                </option>
+              ))}
             </datalist>
             {err("asset.symbol") ? <span className="field-error">{err("asset.symbol")}</span> : null}
           </label>
           {known ? (
             <div className="field">
               <span>名稱</span>
-              <p className="input border-dashed bg-cream">{known.name}</p>
+              <p className="input border-dashed bg-cream">
+                {known.name}
+                {known.active ? null : <span className="tag tag-warn ml-2">已下市</span>}
+              </p>
+            </div>
+          ) : search.loading ? (
+            <div className="field sm:col-span-2">
+              <span>名稱</span>
+              <p className="input border-dashed bg-cream text-ink-3">查詢中…</p>
             </div>
           ) : (
             <label className="field">
@@ -174,7 +211,7 @@ export function TransactionForm({ portfolioId, today, accounts, assets, initial 
               {err("asset.name") ? <span className="field-error">{err("asset.name")}</span> : null}
             </label>
           )}
-          {known ? null : (
+          {known || search.loading ? null : (
             <label className="field">
               <span>類別</span>
               <select className="input" name="assetType" defaultValue="stock" aria-invalid={invalid("asset.assetType")}>
@@ -187,7 +224,7 @@ export function TransactionForm({ portfolioId, today, accounts, assets, initial 
             {market
               ? `市場依帳戶幣別決定：${account?.currency} 帳戶記${MARKETS.find((m) => m.value === market)?.label}。`
               : `${account?.currency} 帳戶目前不能記股票買賣。`}
-            {known ? "" : "不在清單裡的代號會存成你自己的資產（只有你看得到），之後不必再填名稱。"}
+            {known || search.loading ? "" : "台股上市櫃與美股的代號都在清單裡；查不到的代號會存成你自己的資產（只有你看得到），之後不必再填名稱。"}
           </p>
         </div>
       ) : null}

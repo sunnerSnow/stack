@@ -39,12 +39,19 @@ npm run dev          # http://localhost:3000
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`（舊專案可用 `NEXT_PUBLIC_SUPABASE_ANON_KEY`）
    - `DATABASE_URL`：Supabase「Connect」裡的 **Transaction pooler**（port 6543）連線字串
-4. Authentication → URL Configuration 把網站網址加進 Redirect URLs（註冊確認信會回到 `/auth/callback`）。
+   - Vercel 另外要設 `CRON_SECRET`（至少 16 個隨機字元），每天同步資產主檔的排程會帶著它呼叫 `/api/cron/sync-assets`
+4. Authentication → URL Configuration（`https://supabase.com/dashboard/project/<ref>/auth/url-configuration`）把 Site URL 設成網站網址，並把 `https://<網址>/auth/callback` 加進 Redirect URLs（註冊確認信會回到這裡）。
 5. Supabase 內建寄信每小時只能寄很少封、而且只寄給組織成員；開放給別人註冊前要設定自訂 SMTP。
 
 三個變數**只設一半會直接報錯**，正式環境（`NODE_ENV=production`）沒設也會報錯，不會默默改用本機資料庫。
 
-`vercel.json` 把函式固定在新加坡（`sin1`），跟 Supabase 專案（`ap-southeast-1`）同一區；換資料庫地區時要一起改，否則每次查詢都要跨區。
+`vercel.json` 把函式固定在新加坡（`sin1`），跟 Supabase 專案（`ap-southeast-1`）同一區；換資料庫地區時要一起改，否則每次查詢都要跨區。同一個檔案也設定了每天 UTC 22 點（台北 6 點，Hobby 方案會在那一小時內的任意時間執行）同步資產主檔。要立刻同步，可以自己帶密鑰呼叫：
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://<網址>/api/cron/sync-assets
+```
+
+本機示範模式也能用同一個端點把清單同步進 PGlite（啟動前設 `CRON_SECRET`）。
 
 ## 指令
 
@@ -63,6 +70,7 @@ supabase/migrations/   SQL migration（schema、約束、RLS、權限的唯一�
 supabase/local/        本機 PGlite 用的 auth 模擬（auth.users、auth.uid()、authenticated 角色）
 src/lib/money/         十進位運算（decimal.js）；不經過 JavaScript number
 src/lib/ledger/        交易類型規則、FIFO 引擎（純函式）、輸入驗證
+src/lib/assets/        資產主檔的資料來源解析（純函式）與每日同步
 src/lib/services/      投資組合／帳戶／資產／交易／持倉服務（所有財務邏輯都在這裡，不在 React 元件裡）
 src/lib/db/            Drizzle schema、連線、withUser（以使用者身分執行資料庫交易）
 src/lib/auth/          Supabase session、本機示範使用者
@@ -84,7 +92,12 @@ tests/                 Vitest
   - 資料庫保證：一筆交易只能被沖銷一次（唯一索引）、沖銷交易不能再被沖銷、沖銷交易的內容必須與原交易相同（trigger）。
   - 沖銷買進後，如果之後的賣出會變成持倉不足，整筆拒絕，並指出是哪一筆賣出。
   - 原交易與沖銷交易都留在交易列表（淡化顯示、標「已沖銷」或「已更正」），組合的交易筆數只算有效的交易。
-- **資產主檔分成共用與私人。** `created_by` 為空的是共用主檔（migration 內附常見台股與美股，之後由行情資料來源維護）；使用者自己新增的代號只有本人看得到，名稱與類別不會影響別人，也不會洩漏誰持有冷門代號。
+- **資產主檔分成共用與私人。** `created_by` 為空的是共用主檔；使用者自己新增的代號只有本人看得到，名稱與類別不會影響別人，也不會洩漏誰持有冷門代號。
+  - **共用主檔每天同步**（`src/lib/assets/`）：台股取自證交所「證券編碼查詢」（上市＋上櫃的股票、特別股、TDR、ETF，約 2,350 檔；不含權證與債券），美股取自 Nasdaq Trader 代號表（Nasdaq、NYSE、NYSE American、NYSE Arca、Cboe、IEX，約 1.2 萬檔；排除測試代號、權證、單位、認股權與含 `$` 的特別股代號）。只有代號、名稱、交易所與類別，沒有股價。
+  - 細分類記在 `metadata.kind`（stock／preferred／tdr／etf），台股代號以 B 結尾的 ETF 標 `metadata.bondEtf`，之後算證交稅會用到。
+  - 來源裡消失的代號標成 `is_active = false`（下市），不刪除，舊交易仍指向它；某個來源抓取失敗，或筆數比目前有效筆數少 20% 以上時，那個來源不做下市標記。
+  - 同一個代號如果使用者早就存成私人資產，之後一律沿用私人的那筆（搜尋也只顯示它），持倉才不會被拆成兩個資產。
+  - 交易表單輸入代號或名稱時即時查詢（`/api/assets`），不再一次載入整份清單。
 - **持倉批次是衍生資料。** 每次新增買賣，會把同一帳戶＋資產的所有買賣依時間重播一次，重建 `position_lots` 與 `lot_disposals`。補登較早日期的交易也會得到一致的 FIFO 結果，畫面會告訴你重新計算了幾筆既有賣出；如果補登會讓任何時點的持倉變負，整筆拒絕。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
 - **防重複送出。** 每次打開表單產生一個 `clientRequestId`（每位使用者唯一）。同一個 ID 再送一次會回傳原本那筆（API 回 200、`meta.duplicate: true`）；同一個 ID 拿來送不同內容會回 409。
@@ -118,7 +131,8 @@ tests/                 Vitest
 | GET | `/api/transactions/:id` | 交易明細、FIFO 分配與稽核紀錄 |
 | PATCH | `/api/transactions/:id` | 更正交易：沖銷原交易並依 body 新增一筆（格式同新增交易，另可帶 `reason`）；`data` 是新交易 |
 | POST | `/api/transactions/:id/reversal` | 沖銷交易，body `{ clientRequestId, reason? }`；`data` 是沖銷交易 |
-| GET | `/api/assets?q=` | 搜尋資產主檔 |
+| GET | `/api/assets?q=&market=TW\|US&limit=` | 搜尋資產主檔（`q` 必填：代號開頭或名稱包含） |
+| GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
 
 未登入回 401；別人的資源一律回 404（不透露是否存在）。沖銷與更正也用 `clientRequestId` 防重複送出；已經沖銷過的交易回 409 `already_reversed`，沖銷交易本身回 409 `not_reversible`，更正內容跟原交易一樣回 400 `no_change`。
 

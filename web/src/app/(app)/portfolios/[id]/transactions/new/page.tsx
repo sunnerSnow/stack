@@ -5,7 +5,6 @@ import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { todayInTaipei } from "@/lib/ledger/input";
-import { searchAssets } from "@/lib/services/assets";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
 import { TransactionForm } from "../transaction-form";
 
@@ -22,7 +21,7 @@ export default async function NewTransactionPage({ params }: PageProps<"/portfol
     if (error instanceof AppError && error.status === 404) notFound();
     throw error;
   }
-  const [accounts, assets] = await Promise.all([listAccounts(db, user.id, id), searchAssets(db, user.id, null)]);
+  const accounts = await listAccounts(db, user.id, id);
   if (accounts.length === 0) redirect(`/portfolios/${id}`);
 
   return (
@@ -41,7 +40,6 @@ export default async function NewTransactionPage({ params }: PageProps<"/portfol
           portfolioId={id}
           today={todayInTaipei()}
           accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
-          assets={assets.map((a) => ({ market: a.market, symbol: a.symbol, name: a.name }))}
         />
       </section>
     </div>

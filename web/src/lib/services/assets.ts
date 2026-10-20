@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db/local";
 import { assets } from "@/lib/db/schema";
 import { type Tx, withUser } from "@/lib/db/with-user";
@@ -14,6 +14,10 @@ export interface AssetDto {
   name: string;
   assetType: string;
   currency: string;
+  /** TWSE、TPEx、NASDAQ、NYSE… */
+  exchange: string | null;
+  /** false：已下市（共用主檔的來源裡已經沒有這個代號） */
+  active: boolean;
   /** false：使用者自己新增的代號（只有本人看得到） */
   shared: boolean;
 }
@@ -25,6 +29,8 @@ export const toAssetDto = (a: AssetRow): AssetDto => ({
   name: a.name,
   assetType: a.assetType,
   currency: a.currency,
+  exchange: a.exchange,
+  active: a.isActive,
   shared: a.createdBy === null,
 });
 
@@ -32,7 +38,9 @@ export const toAssetDto = (a: AssetRow): AssetDto => ({
 const visibleTo = (userId: string) => or(isNull(assets.createdBy), eq(assets.createdBy, userId));
 
 /**
- * 依「市場＋代號」找資產：先找共用主檔，再找自己新增過的；都沒有就建立一筆只有自己看得到的。
+ * 依「市場＋代號」找資產：先找自己新增過的，再找共用主檔；都沒有就建立一筆只有自己看得到的。
+ * 自己新增過的優先：如果那個代號後來才進共用主檔，繼續用原本的私人資產，
+ * 同一檔的持倉才不會被拆成兩個資產、FIFO 分開算。
  * 使用者輸入的名稱與類別只影響自己，不會改到別人看到的資料。
  * 報價幣別由市場決定（TW → TWD、US → USD），不讓使用者自填。
  */
@@ -41,7 +49,7 @@ export async function resolveAsset(tx: Tx, userId: string, input: NonNullable<No
     .select()
     .from(assets)
     .where(and(eq(assets.market, input.market), eq(assets.symbol, input.symbol), visibleTo(userId)));
-  const found = candidates.find((a) => a.createdBy === null) ?? candidates.find((a) => a.createdBy === userId);
+  const found = candidates.find((a) => a.createdBy === userId) ?? candidates.find((a) => a.createdBy === null);
   if (found) return found;
 
   const issues = [];
@@ -70,15 +78,35 @@ export async function resolveAsset(tx: Tx, userId: string, input: NonNullable<No
   return raced;
 }
 
-export async function searchAssets(db: Db, userId: string, q: string | null): Promise<AssetDto[]> {
+/**
+ * 搜尋代號或名稱。共用主檔有上萬筆，所以一定要帶關鍵字才查（沒帶回空陣列）。
+ * 排序：代號完全相同 → 代號開頭相同 → 名稱包含；同一層裡自己新增的、還在交易的排前面。
+ */
+export async function searchAssets(db: Db, userId: string, q: string | null, opts: { market?: string; limit?: number } = {}): Promise<AssetDto[]> {
+  const term = q?.trim().replace(/[%_\\]/g, "") ?? "";
+  if (!term) return [];
+  const upper = term.toUpperCase();
   return withUser(db, userId, async (tx) => {
-    const term = q?.trim().replace(/[%_\\]/g, "");
     const rows = await tx
       .select()
       .from(assets)
-      .where(and(visibleTo(userId), term ? or(ilike(assets.symbol, `${term}%`), ilike(assets.name, `%${term}%`)) : undefined))
-      .orderBy(asc(assets.market), asc(assets.symbol))
-      .limit(50);
-    return rows.map(toAssetDto);
+      .where(
+        and(
+          visibleTo(userId),
+          opts.market ? eq(assets.market, opts.market) : undefined,
+          or(ilike(assets.symbol, `${term}%`), ilike(assets.name, `%${term}%`)),
+        ),
+      )
+      .orderBy(
+        sql`case when ${assets.symbol} = ${upper} then 0 when ${assets.symbol} like ${`${upper}%`} then 1 else 2 end`,
+        sql`${assets.createdBy} is null`,
+        desc(assets.isActive),
+        sql`char_length(${assets.symbol})`,
+        asc(assets.symbol),
+      )
+      .limit(Math.min(Math.max(opts.limit ?? 20, 1), 50));
+    // 同一個代號同時有私人與共用的：只留私人那筆（跟 resolveAsset 一致）
+    const mine = new Set(rows.filter((r) => r.createdBy === userId).map((r) => `${r.market}:${r.symbol}`));
+    return rows.filter((r) => r.createdBy !== null || !mine.has(`${r.market}:${r.symbol}`)).map(toAssetDto);
   });
 }
