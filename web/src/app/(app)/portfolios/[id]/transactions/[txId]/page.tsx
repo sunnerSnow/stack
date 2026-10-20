@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { formatDateTime, MARKET_LABEL } from "@/lib/format";
+import { describeFee, describeTax } from "@/lib/ledger/costs";
 import { getTransaction } from "@/lib/services/transactions";
 import { ReverseForm } from "./reverse-form";
 
@@ -41,11 +42,15 @@ export default async function TransactionPage({ params, searchParams }: PageProp
     ["數量", <Amount key="q" value={t.quantity} maxFraction={10} />],
     ["單價", <Amount key="p" value={t.unitPrice} maxFraction={10} />],
     [t.type === "buy" || t.type === "sell" ? "成交金額" : "金額", <Amount key="g" value={t.grossAmount} currency={t.currency} maxFraction={10} />],
-    ["手續費", <Amount key="f" value={t.fee} maxFraction={10} />],
-    [t.taxKind ? TAX_KIND[t.taxKind] : "稅", <Amount key="t" value={t.tax} maxFraction={10} />],
+    ["手續費", <span key="f">{t.costEstimate?.fee ? <span className="tag mr-2">估算</span> : null}<Amount value={t.fee} maxFraction={10} /></span>],
+    [
+      t.taxKind ? TAX_KIND[t.taxKind] : t.type === "sell" ? "交易稅" : "稅",
+      <span key="t">{t.costEstimate?.tax ? <span className="tag mr-2">估算</span> : null}<Amount value={t.tax} maxFraction={10} /></span>,
+    ],
     ["其他費用", <Amount key="o" value={t.otherCost} maxFraction={10} />],
     ["現金影響", <Amount key="c" value={t.cashAmount} currency={t.currency} maxFraction={10} signed />],
     ["外部現金流", t.externalFlowType === "contribution" ? "入金（外部投入）" : t.externalFlowType === "withdrawal" ? "出金（外部提領）" : "否"],
+    ...(t.type === "sell" ? ([["現股當沖", t.dayTrade ? "是（證交稅 0.15%）" : "否"]] as [string, React.ReactNode][]) : []),
     ["來源", t.source === "manual" ? "手動輸入" : t.source],
     ["備註", t.notes ?? "—"],
     ["建立時間", <span key="ca" className="num">{formatDateTime(t.createdAt)}</span>],
@@ -111,6 +116,25 @@ export default async function TransactionPage({ params, searchParams }: PageProp
           ))}
         </dl>
       </section>
+
+      {t.costEstimate ? (
+        <p className="border-2 border-dashed border-line bg-paper px-4 py-3 text-xs leading-relaxed text-ink-2">
+          <span className="tag mr-2">估算</span>
+          這筆有費用是入帳時依規則估算的，不是券商對帳單上的金額：
+          {t.costEstimate.fee ? ` 手續費 ${t.costEstimate.fee.amount}（${describeFee(t.costEstimate.fee)}）` : ""}
+          {t.costEstimate.fee && t.costEstimate.tax ? "；" : ""}
+          {t.costEstimate.tax ? (
+            <>
+              {" "}證交稅 {t.costEstimate.tax.amount}（{describeTax(t.costEstimate.tax)}，
+              <a href={t.costEstimate.tax.source} target="_blank" rel="noreferrer" className="underline">
+                依據
+              </a>
+              ）
+            </>
+          ) : null}
+          。金額不一樣的話，用下方的「更正這筆」改成實際金額。
+        </p>
+      ) : null}
 
       {t.type === "sell" && effective ? (
         <section className="panel min-w-0">

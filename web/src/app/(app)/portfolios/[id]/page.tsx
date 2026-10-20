@@ -10,6 +10,8 @@ import { D } from "@/lib/money/decimal";
 import { type CurrencyAmount, getCashBalances, getHoldings, getLedgerSummary } from "@/lib/services/positions";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
 import { getTransaction, listTransactions } from "@/lib/services/transactions";
+import { describeFeeSettings } from "@/lib/ledger/costs";
+import { AccountFeesForm } from "./account-fees-form";
 import { CreateAccountForm } from "./create-account-form";
 
 export const metadata: Metadata = { title: "投資組合" };
@@ -214,6 +216,15 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                         ))
                       )}
                     </div>
+                    {a.accountType === "brokerage" ? (
+                      <details className="group mt-1.5">
+                        <summary className="cursor-pointer list-none text-xs text-ink-2 hover:underline">
+                          手續費：{describeFeeSettings(a.fees) ?? "不自動估算"}
+                          <span className="ml-1 font-bold group-open:hidden">設定</span>
+                        </summary>
+                        <AccountFeesForm portfolioId={id} accountId={a.id} currency={a.currency} fees={a.fees} />
+                      </details>
+                    ) : null}
                   </li>
                 );
               })}
@@ -274,8 +285,13 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     <td className="r">
                       <Amount value={t.grossAmount} currency={t.currency} />
                     </td>
-                    <td className="r">
+                    <td className="r whitespace-nowrap">
                       <Amount value={totalCosts(t.fee, t.tax, t.otherCost)} />
+                      {t.costEstimate ? (
+                        <span className="tag ml-1" title="含系統估算的手續費或證交稅">
+                          估
+                        </span>
+                      ) : null}
                     </td>
                     <td className="r">
                       <Amount value={t.cashAmount} signed />

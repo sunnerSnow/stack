@@ -40,6 +40,13 @@ export const accounts = stack.table("accounts", {
   accountType: text("account_type", { enum: ["brokerage", "cash", "other"] }).notNull(),
   currency: char("currency", { length: 3 }).notNull(),
   trackingMode: text("tracking_mode", { enum: ["transaction", "snapshot"] }).notNull().default("transaction"),
+  // 手續費設定（20261021000000_cost_estimates.sql）；feeRate 為 null 表示不自動估算
+  feeRate: numeric("fee_rate", { precision: 12, scale: 8 }),
+  feeDiscount: numeric("fee_discount", { precision: 6, scale: 4 }).notNull().default("1"),
+  feeMin: amount("fee_min").notNull().default("0"),
+  feeMinOddLot: amount("fee_min_odd_lot"),
+  feeMax: amount("fee_max"),
+  feeRounding: text("fee_rounding", { enum: ["floor", "round"] }).notNull().default("floor"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
   archivedAt: timestamp("archived_at", { withTimezone: true, mode: "string" }),
@@ -85,6 +92,9 @@ export const transactions = stack.table("transactions", {
   importRowId: uuid("import_row_id"),
   reversalOfId: uuid("reversal_of_id"),
   clientRequestId: uuid("client_request_id"),
+  dayTrade: boolean("day_trade").notNull().default(false),
+  /** 系統估算的費用與依據（見 src/lib/ledger/costs.ts 的 CostEstimate）；null 表示都是實際金額 */
+  costEstimate: jsonb("cost_estimate"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

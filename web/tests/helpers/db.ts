@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { type Db, ensureLocalAuthUser, openLocalDb } from "@/lib/db/local";
+import type { FeeSettingsInput } from "@/lib/ledger/input";
 import { createAccount, createPortfolio, ensureUserProfile } from "@/lib/services/portfolios";
 
 /** 記憶體內的 PGlite：跑 auth 模擬＋全部 migration，跟正式 schema 相同（含 RLS） */
@@ -15,8 +16,11 @@ export async function createUser(db: Db, email = `${randomUUID().slice(0, 8)}@ex
   return id;
 }
 
-/** 建立一個使用者＋投資組合＋券商帳戶，回傳各 ID */
-export async function createLedger(db: Db, opts: { currency?: "TWD" | "USD" } = {}) {
+/**
+ * 建立一個使用者＋投資組合＋券商帳戶，回傳各 ID。
+ * 帳本計算的測試預設不自動估算費用（沒填就是 0），算式才看得清楚；要測估算時傳 fees。
+ */
+export async function createLedger(db: Db, opts: { currency?: "TWD" | "USD"; fees?: FeeSettingsInput } = {}) {
   const userId = await createUser(db);
   const portfolio = await createPortfolio(db, userId, { name: "台股長期", baseCurrency: "TWD" });
   const account = await createAccount(db, userId, portfolio.id, {
@@ -24,6 +28,7 @@ export async function createLedger(db: Db, opts: { currency?: "TWD" | "USD" } = 
     brokerName: "元大",
     accountType: "brokerage",
     currency: opts.currency ?? "TWD",
+    fees: opts.fees ?? { enabled: false },
   });
   return { userId, portfolioId: portfolio.id, accountId: account.id };
 }

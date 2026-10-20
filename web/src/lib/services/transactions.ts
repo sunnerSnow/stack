@@ -7,11 +7,12 @@ import { accounts, assets, auditLog, cashLedger, lotDisposals, portfolios, posit
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { AppError, notFound, validationFailed } from "@/lib/errors";
 import { CurrencyMismatchError, InsufficientPositionError, replayFifo, type TradeEvent } from "@/lib/ledger/fifo";
+import { type CostEstimate, estimateCosts } from "@/lib/ledger/costs";
 import { type NormalizedTransaction, normalizeCorrectionInput, normalizeReversalInput, normalizeTransactionInput } from "@/lib/ledger/input";
 import { cashEffect, isPhase1Type, type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { type Dec, dec, toDb, toPlain, toPlainOrNull, ZERO } from "@/lib/money/decimal";
-import { type AssetDto, resolveAsset, toAssetDto } from "@/lib/services/assets";
-import { isUuid, requirePortfolio } from "@/lib/services/portfolios";
+import { type AssetDto, resolveAsset, taxAssetOf, toAssetDto } from "@/lib/services/assets";
+import { feeSettingsOf, isUuid, requirePortfolio } from "@/lib/services/portfolios";
 
 export interface TransactionDto {
   id: string;
@@ -38,6 +39,10 @@ export interface TransactionDto {
   cashAmount: string | null;
   /** 賣出的已實現損益（其他類型為 null） */
   realizedPnl: string | null;
+  /** 現股當沖（證交稅率不同） */
+  dayTrade: boolean;
+  /** 系統估算的手續費／證交稅與依據；都是實際金額時為 null */
+  costEstimate: CostEstimate | null;
   /** 這筆是沖銷交易：被抵銷的原交易 ID */
   reversalOfId: string | null;
   /** 這筆已被沖銷：沖銷交易的 ID */
@@ -262,17 +267,21 @@ function alreadyReversed(): AppError {
 }
 
 function isSameRequest(existing: TransactionDto, input: NormalizedTransaction): boolean {
+  // 當時沒填、由系統估算的費用：這次也沒填就算相同（不拿估算值跟空白比）
+  const sameCost = (actual: string, given: Dec, provided: boolean, estimated: boolean) =>
+    estimated ? !provided || sameDecimal(actual, given) : sameDecimal(actual, given);
   return (
     existing.accountId === input.accountId &&
     existing.type === input.type &&
     existing.tradeDate === input.tradeDate &&
+    existing.dayTrade === input.dayTrade &&
     (existing.asset?.symbol ?? null) === (input.asset?.symbol ?? null) &&
     (existing.asset?.market ?? null) === (input.asset?.market ?? null) &&
     sameDecimal(existing.quantity, input.quantity) &&
     sameDecimal(existing.unitPrice, input.unitPrice) &&
     sameDecimal(existing.grossAmount, input.gross) &&
-    sameDecimal(existing.fee, input.fee) &&
-    sameDecimal(existing.tax, input.tax) &&
+    sameCost(existing.fee, input.fee, input.feeProvided, Boolean(existing.costEstimate?.fee)) &&
+    sameCost(existing.tax, input.tax, input.taxProvided, Boolean(existing.costEstimate?.tax)) &&
     sameDecimal(existing.otherCost, input.otherCost)
   );
 }
@@ -338,8 +347,33 @@ async function insertTransaction(
   if (input.fxRateToBase && currency === baseCurrency) {
     throw validationFailed([{ field: "fxRateToBase", message: `帳戶幣別與報表基準幣別都是 ${currency}，不需要匯率` }]);
   }
+  if (input.dayTrade && asset?.market !== "TW") {
+    throw validationFailed([{ field: "dayTrade", message: "現股當沖的證交稅減半只適用台股" }]);
+  }
 
-  const amounts = { gross: input.gross, fee: input.fee, tax: input.tax, otherCost: input.otherCost };
+  // 沒填的手續費／證交稅依帳戶設定估算；有填（包括填 0）就用實際金額
+  let { fee, tax } = input;
+  const estimate: CostEstimate = {};
+  if (rule.trade && asset && (input.type === "buy" || input.type === "sell")) {
+    const est = estimateCosts(feeSettingsOf(account), taxAssetOf(asset), {
+      type: input.type,
+      tradeDate: input.tradeDate,
+      currency,
+      gross: input.gross,
+      quantity: input.quantity!,
+      dayTrade: input.dayTrade,
+    });
+    if (!input.feeProvided && est.fee) {
+      fee = dec(est.fee.amount);
+      estimate.fee = est.fee;
+    }
+    if (!input.taxProvided && est.tax) {
+      tax = dec(est.tax.amount);
+      estimate.tax = est.tax;
+    }
+  }
+
+  const amounts = { gross: input.gross, fee, tax, otherCost: input.otherCost };
   const [row] = await tx
     .insert(transactions)
     .values({
@@ -352,9 +386,9 @@ async function insertTransaction(
       quantity: input.quantity ? toDb(input.quantity) : null,
       unitPrice: input.unitPrice ? toDb(input.unitPrice) : null,
       grossAmount: toDb(input.gross),
-      fee: toDb(input.fee),
-      tax: toDb(input.tax),
-      taxKind: input.tax.greaterThan(0) ? rule.taxKind : null,
+      fee: toDb(fee),
+      tax: toDb(tax),
+      taxKind: tax.greaterThan(0) ? rule.taxKind : null,
       otherCost: toDb(input.otherCost),
       currency,
       fxRateToBase: input.fxRateToBase ? input.fxRateToBase.toFixed(12) : null,
@@ -362,6 +396,8 @@ async function insertTransaction(
       notes: input.notes,
       source: "manual",
       clientRequestId: input.clientRequestId,
+      dayTrade: input.dayTrade,
+      costEstimate: estimate.fee || estimate.tax ? estimate : null,
     })
     .returning({ id: transactions.id });
 
@@ -430,6 +466,8 @@ async function insertReversal(tx: Tx, userId: string, o: TransactionRow, clientR
       source: "manual",
       reversalOfId: o.id,
       clientRequestId,
+      dayTrade: o.dayTrade,
+      costEstimate: o.costEstimate,
     })
     .returning({ id: transactions.id });
 
@@ -668,6 +706,8 @@ async function loadTransactions(
       source: t.source,
       cashAmount: toPlainOrNull(cashAmount),
       realizedPnl: t.transactionType === "sell" && !t.reversalOfId ? toPlainOrNull(realizedPnl) : null,
+      dayTrade: t.dayTrade,
+      costEstimate: (t.costEstimate as CostEstimate | null) ?? null,
       reversalOfId: t.reversalOfId,
       reversedById,
       replacedById,

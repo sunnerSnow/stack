@@ -12,7 +12,7 @@ import { isLocalMode } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
-import { createAccount, createPortfolio } from "@/lib/services/portfolios";
+import { createAccount, createPortfolio, updateAccountFees } from "@/lib/services/portfolios";
 import { correctTransaction, postTransaction, reverseTransaction } from "@/lib/services/transactions";
 
 /**
@@ -120,6 +120,25 @@ export async function createAccountAction(portfolioId: string, _prev: FormState,
   return { done: true };
 }
 
+export async function updateAccountFeesAction(portfolioId: string, accountId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  try {
+    await updateAccountFees(await getDb(), user.id, accountId, {
+      enabled: formData.get("enabled") === "on",
+      ratePercent: text(formData, "ratePercent"),
+      discount: text(formData, "discount"),
+      min: text(formData, "min"),
+      minOddLot: text(formData, "minOddLot"),
+      max: text(formData, "max"),
+      rounding: text(formData, "rounding"),
+    });
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  return { done: true };
+}
+
 // ---------------------------------------------------------------------------
 // 交易
 // ---------------------------------------------------------------------------
@@ -145,6 +164,7 @@ function transactionInputFromForm(formData: FormData) {
     tax: rule?.allowsCosts ? text(formData, "tax") : undefined,
     otherCost: rule?.allowsCosts ? text(formData, "otherCost") : undefined,
     notes: text(formData, "notes"),
+    dayTrade: type === "sell" && formData.get("dayTrade") === "on" ? true : undefined,
   };
 }
 

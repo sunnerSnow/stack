@@ -39,7 +39,7 @@ export default async function NewTransactionPage({ params }: PageProps<"/portfol
         <TransactionForm
           portfolioId={id}
           today={todayInTaipei()}
-          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
+          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency, fees: a.fees }))}
         />
       </section>
     </div>

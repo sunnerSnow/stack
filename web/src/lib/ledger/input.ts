@@ -50,6 +50,8 @@ export const transactionInputSchema = z.object({
   currency: optional(z.string().trim().toUpperCase().pipe(z.enum(CURRENCIES, "目前只支援 TWD 與 USD"))),
   fxRateToBase: optional(decimalText),
   notes: optional(z.string().trim().max(500, "備註最多 500 字")),
+  /** 現股當沖（證交稅率不同）；只有台股賣出可以標記 */
+  dayTrade: z.boolean("當沖請用 true／false").optional(),
 });
 export type TransactionInput = z.input<typeof transactionInputSchema>;
 
@@ -66,6 +68,10 @@ export interface NormalizedTransaction {
   fee: Dec;
   tax: Dec;
   otherCost: Dec;
+  /** 使用者有沒有填手續費／稅（沒填才會依帳戶設定估算；填 0 就是 0） */
+  feeProvided: boolean;
+  taxProvided: boolean;
+  dayTrade: boolean;
   currency: string | null;
   fxRateToBase: Dec | null;
   notes: string | null;
@@ -132,6 +138,7 @@ export function normalizeTransactionInput(raw: unknown, opts: { today?: string }
   }
   const fxRateToBase = input.fxRateToBase === undefined ? null : dec(input.fxRateToBase);
   if (fxRateToBase && fxRateToBase.lessThanOrEqualTo(0)) issues.push({ field: "fxRateToBase", message: "匯率必須大於 0" });
+  if (input.dayTrade && input.type !== "sell") issues.push({ field: "dayTrade", message: "只有賣出可以標記現股當沖" });
 
   if (issues.length > 0) throw validationFailed(issues);
 
@@ -150,6 +157,9 @@ export function normalizeTransactionInput(raw: unknown, opts: { today?: string }
     fee,
     tax,
     otherCost,
+    feeProvided: input.fee !== undefined,
+    taxProvided: input.tax !== undefined,
+    dayTrade: input.dayTrade ?? false,
     currency: input.currency ?? null,
     fxRateToBase,
     notes: input.notes ?? null,
@@ -188,3 +198,67 @@ export const accountInputSchema = z.object({
   accountType: z.enum(["brokerage", "cash", "other"], "請選擇帳戶類型"),
   currency: z.enum(CURRENCIES, "請選擇幣別"),
 });
+
+/**
+ * 帳戶的手續費設定，用人習慣的寫法輸入：費率用百分比（0.1425）、折扣用「折」（2.8；空白＝不打折）。
+ * enabled = false 表示不自動估算（沒填的費用就是 0）。
+ */
+export const feeSettingsInputSchema = z.object({
+  enabled: z.boolean("請選擇是否自動估算"),
+  ratePercent: optional(decimalText),
+  discount: optional(decimalText),
+  min: optional(decimalText),
+  minOddLot: optional(decimalText),
+  max: optional(decimalText),
+  rounding: optional(z.enum(["floor", "round"], "請選擇捨入方式")),
+});
+export type FeeSettingsInput = z.input<typeof feeSettingsInputSchema>;
+
+export interface NormalizedFeeSettings {
+  feeRate: string | null;
+  feeDiscount: string;
+  feeMin: string;
+  feeMinOddLot: string | null;
+  feeMax: string | null;
+  feeRounding: "floor" | "round";
+}
+
+export function normalizeFeeSettings(raw: unknown): NormalizedFeeSettings {
+  const parsed = feeSettingsInputSchema.safeParse(raw);
+  if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
+  const input = parsed.data;
+  const off: NormalizedFeeSettings = { feeRate: null, feeDiscount: "1", feeMin: "0", feeMinOddLot: null, feeMax: null, feeRounding: "floor" };
+  if (!input.enabled) return off;
+
+  const issues: FieldIssue[] = [];
+  const rate = input.ratePercent === undefined ? null : dec(input.ratePercent).dividedBy(100);
+  if (rate === null) issues.push({ field: "ratePercent", message: "請輸入手續費率（%），沒有手續費就填 0" });
+  else if (rate.greaterThanOrEqualTo("0.1")) issues.push({ field: "ratePercent", message: "手續費率必須小於 10%" });
+  const discount = input.discount === undefined ? new D(1) : dec(input.discount).dividedBy(10);
+  if (discount.lessThanOrEqualTo(0) || discount.greaterThan(1)) issues.push({ field: "discount", message: "折扣請填 0 到 10 之間（2.8 折填 2.8，不打折留空）" });
+  if (!discount.toDecimalPlaces(4).equals(discount)) issues.push({ field: "discount", message: "折扣最多到小數點後三位（例如 2.855）" });
+  const min = dec(input.min);
+  const max = input.max === undefined ? null : dec(input.max);
+  if (max && max.lessThan(min)) issues.push({ field: "max", message: "上限不能低於最低手續費" });
+  if (issues.length > 0) throw validationFailed(issues);
+
+  return {
+    feeRate: rate!.toFixed(),
+    feeDiscount: discount.toFixed(),
+    feeMin: min.toFixed(),
+    feeMinOddLot: input.minOddLot === undefined ? null : dec(input.minOddLot).toFixed(),
+    feeMax: max ? max.toFixed() : null,
+    feeRounding: input.rounding ?? "floor",
+  };
+}
+
+/**
+ * 新帳戶的預設：台幣券商帳戶開啟估算（法定上限 0.1425%、不打折、整股最低 20、零股最低 1、元以下捨去），
+ * 其他帳戶不估算。各家券商與帳戶不同，建立後請到帳戶的「手續費設定」改成自己的折扣。
+ */
+export function defaultFeeSettings(account: { accountType: string; currency: string }): NormalizedFeeSettings {
+  if (account.accountType === "brokerage" && account.currency === "TWD") {
+    return { feeRate: "0.001425", feeDiscount: "1", feeMin: "20", feeMinOddLot: "1", feeMax: null, feeRounding: "floor" };
+  }
+  return { feeRate: null, feeDiscount: "1", feeMin: "0", feeMinOddLot: null, feeMax: null, feeRounding: "floor" };
+}

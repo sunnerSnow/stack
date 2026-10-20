@@ -3,6 +3,7 @@ import type { Db } from "@/lib/db/local";
 import { assets } from "@/lib/db/schema";
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { validationFailed } from "@/lib/errors";
+import { type TaxAsset, taxCategory } from "@/lib/ledger/costs";
 import { MARKET_CURRENCY, type NormalizedTransaction } from "@/lib/ledger/input";
 
 export type AssetRow = typeof assets.$inferSelect;
@@ -20,7 +21,13 @@ export interface AssetDto {
   active: boolean;
   /** false：使用者自己新增的代號（只有本人看得到） */
   shared: boolean;
+  /** 細分類（stock／preferred／tdr／etf），證交稅率用；私人代號為 null */
+  kind: string | null;
+  /** 台股債券 ETF（目前免徵證交稅） */
+  bondEtf: boolean;
 }
+
+const metaOf = (a: AssetRow) => (a.metadata ?? {}) as { kind?: string; bondEtf?: boolean };
 
 export const toAssetDto = (a: AssetRow): AssetDto => ({
   id: a.id,
@@ -32,7 +39,15 @@ export const toAssetDto = (a: AssetRow): AssetDto => ({
   exchange: a.exchange,
   active: a.isActive,
   shared: a.createdBy === null,
+  kind: metaOf(a).kind ?? null,
+  bondEtf: taxCategory(taxAssetOf(a)) === "bond_etf",
 });
+
+/** 估算證交稅需要的資產資訊；私人代號沒有 metadata，就依 assetType 與代號判斷 */
+export function taxAssetOf(a: AssetRow | AssetDto): TaxAsset {
+  const meta = "metadata" in a ? metaOf(a) : { kind: a.kind, bondEtf: a.bondEtf };
+  return { market: a.market, symbol: a.symbol, assetType: a.assetType, kind: meta.kind ?? null, bondEtf: meta.bondEtf ?? null };
+}
 
 /** 這個使用者看得到的資產：共用主檔＋自己新增的 */
 const visibleTo = (userId: string) => or(isNull(assets.createdBy), eq(assets.createdBy, userId));

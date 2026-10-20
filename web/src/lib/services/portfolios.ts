@@ -4,7 +4,9 @@ import { isUniqueViolation } from "@/lib/db/pg-errors";
 import { accounts, portfolios, users } from "@/lib/db/schema";
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { AppError, issuesFromZod, notFound, validationFailed } from "@/lib/errors";
-import { accountInputSchema, portfolioInputSchema } from "@/lib/ledger/input";
+import type { FeeSettings } from "@/lib/ledger/costs";
+import { accountInputSchema, defaultFeeSettings, normalizeFeeSettings, portfolioInputSchema } from "@/lib/ledger/input";
+import { toPlain, toPlainOrNull } from "@/lib/money/decimal";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: string) => UUID_RE.test(v);
@@ -26,6 +28,8 @@ export interface AccountDto {
   accountType: "brokerage" | "cash" | "other";
   currency: string;
   trackingMode: "transaction" | "snapshot";
+  /** 手續費設定；feeRate 為 null 表示不自動估算 */
+  fees: FeeSettings;
   createdAt: string;
 }
 
@@ -95,6 +99,17 @@ export async function getPortfolio(db: Db, userId: string, portfolioId: string):
   });
 }
 
+export function feeSettingsOf(row: typeof accounts.$inferSelect): FeeSettings {
+  return {
+    feeRate: toPlainOrNull(row.feeRate),
+    feeDiscount: toPlain(row.feeDiscount),
+    feeMin: toPlain(row.feeMin),
+    feeMinOddLot: toPlainOrNull(row.feeMinOddLot),
+    feeMax: toPlainOrNull(row.feeMax),
+    feeRounding: row.feeRounding,
+  };
+}
+
 function toAccountDto(row: typeof accounts.$inferSelect): AccountDto {
   return {
     id: row.id,
@@ -104,6 +119,7 @@ function toAccountDto(row: typeof accounts.$inferSelect): AccountDto {
     accountType: row.accountType,
     currency: row.currency,
     trackingMode: row.trackingMode,
+    fees: feeSettingsOf(row),
     createdAt: row.createdAt,
   };
 }
@@ -120,9 +136,12 @@ export async function listAccounts(db: Db, userId: string, portfolioId: string):
   });
 }
 
+/** 建立帳戶；沒帶 fees 就用預設（台幣券商帳戶開啟估算，其他不估算） */
 export async function createAccount(db: Db, userId: string, portfolioId: string, raw: unknown): Promise<AccountDto> {
   const parsed = accountInputSchema.safeParse(raw);
   if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
+  const rawFees = (raw as { fees?: unknown } | null)?.fees;
+  const fees = rawFees === undefined ? defaultFeeSettings(parsed.data) : normalizeFeeSettings(rawFees);
   return withUser(db, userId, async (tx) => {
     await requirePortfolio(tx, userId, portfolioId);
     const [row] = await tx
@@ -135,8 +154,24 @@ export async function createAccount(db: Db, userId: string, portfolioId: string,
         accountType: parsed.data.accountType,
         currency: parsed.data.currency,
         trackingMode: "transaction",
+        ...fees,
       })
       .returning();
+    return toAccountDto(row);
+  });
+}
+
+/** 改帳戶的手續費設定；只影響之後的估算，已入帳的交易不會被重算 */
+export async function updateAccountFees(db: Db, userId: string, accountId: string, raw: unknown): Promise<AccountDto> {
+  if (!isUuid(accountId)) throw notFound("帳戶");
+  const fees = normalizeFeeSettings(raw);
+  return withUser(db, userId, async (tx) => {
+    const [row] = await tx
+      .update(accounts)
+      .set(fees)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId), isNull(accounts.archivedAt)))
+      .returning();
+    if (!row) throw notFound("帳戶");
     return toAccountDto(row);
   });
 }

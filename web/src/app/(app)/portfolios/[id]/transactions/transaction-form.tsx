@@ -4,6 +4,7 @@ import Link from "next/link";
 import { startTransition, useActionState, useEffect, useState } from "react";
 import { correctTransactionAction, createTransactionAction, type FormState } from "@/app/actions";
 import { formatDecimal } from "@/lib/format";
+import { type CostEstimate, describeFee, describeTax, estimateCosts, type FeeSettings, type TaxAsset } from "@/lib/ledger/costs";
 import { type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { D } from "@/lib/money/decimal";
 
@@ -21,12 +22,13 @@ export interface TransactionFormValues {
   tax: string;
   otherCost: string;
   notes: string;
+  dayTrade: boolean;
 }
 
 interface Props {
   portfolioId: string;
   today: string;
-  accounts: { id: string; name: string; currency: string }[];
+  accounts: { id: string; name: string; currency: string; fees: FeeSettings }[];
   initial?: Partial<TransactionFormValues>;
   /** 更正這筆交易：送出時沖銷它，再依表單內容新增一筆 */
   correctionOf?: string;
@@ -52,6 +54,9 @@ const marketFor = (currency: string | undefined): Market | null => MARKETS.find(
 interface AssetHit {
   symbol: string;
   name: string;
+  assetType: string;
+  kind: string | null;
+  bondEtf: boolean;
   active: boolean;
   shared: boolean;
 }
@@ -91,11 +96,27 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
   const [symbol, setSymbol] = useState(initial.symbol ?? "");
   const [quantity, setQuantity] = useState(initial.quantity ?? "");
   const [unitPrice, setUnitPrice] = useState(initial.unitPrice ?? "");
+  const [tradeDate, setTradeDate] = useState(initial.tradeDate ?? today);
+  const [dayTrade, setDayTrade] = useState(initial.dayTrade ?? false);
+  const [newAssetType, setNewAssetType] = useState("stock");
 
   const rule = TRANSACTION_RULES[type];
   const search = useAssetSearch(rule.asset === "required" ? market : null, symbol);
   const known = search.hits.find((a) => a.symbol === symbol.trim().toUpperCase());
   const gross = DECIMAL_RE.test(quantity) && DECIMAL_RE.test(unitPrice) ? new D(quantity).times(unitPrice).toFixed() : null;
+  const canDayTrade = type === "sell" && market === "TW";
+
+  // 跟伺服器用同一份規則估算，沒填的手續費／證交稅會以這個值入帳
+  const taxAsset: TaxAsset | null =
+    market && symbol.trim()
+      ? known
+        ? { market, symbol: known.symbol, assetType: known.assetType, kind: known.kind, bondEtf: known.bondEtf }
+        : { market, symbol: symbol.trim().toUpperCase(), assetType: newAssetType }
+      : null;
+  const estimate: CostEstimate =
+    (type === "buy" || type === "sell") && account && taxAsset && gross && !search.loading
+      ? estimateCosts(account.fees, taxAsset, { type, tradeDate, currency: account.currency, gross: new D(gross), quantity: new D(quantity), dayTrade: canDayTrade && dayTrade })
+      : {};
   const err = (field: string) => state.fieldErrors?.[field];
   const invalid = (field: string) => Boolean(err(field));
   const taxLabel = rule.taxKind === "withholding_tax" ? "扣繳稅" : "交易稅";
@@ -148,7 +169,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
         </label>
         <label className="field">
           <span>交易日</span>
-          <input className="input num" type="date" name="tradeDate" defaultValue={initial.tradeDate ?? today} max={today} required aria-invalid={invalid("tradeDate")} />
+          <input className="input num" type="date" name="tradeDate" value={tradeDate} onChange={(e) => setTradeDate(e.target.value)} max={today} required aria-invalid={invalid("tradeDate")} />
           {err("tradeDate") ? <span className="field-error">{err("tradeDate")}</span> : null}
         </label>
         <label className="field">
@@ -214,7 +235,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
           {known || search.loading ? null : (
             <label className="field">
               <span>類別</span>
-              <select className="input" name="assetType" defaultValue="stock" aria-invalid={invalid("asset.assetType")}>
+              <select className="input" name="assetType" value={newAssetType} onChange={(e) => setNewAssetType(e.target.value)} aria-invalid={invalid("asset.assetType")}>
                 <option value="stock">股票</option>
                 <option value="etf">ETF</option>
               </select>
@@ -258,17 +279,31 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="field">
             <span>
-              手續費<small>選填</small>
+              手續費<small>{estimate.fee ? "沒填就用估算值" : "選填"}</small>
             </span>
-            <input className="input num" name="fee" inputMode="decimal" placeholder="0" defaultValue={initial.fee} aria-invalid={invalid("fee")} />
+            <input
+              className="input num"
+              name="fee"
+              inputMode="decimal"
+              placeholder={estimate.fee ? `估算 ${formatDecimal(estimate.fee.amount)}` : "0"}
+              defaultValue={initial.fee}
+              aria-invalid={invalid("fee")}
+            />
             {err("fee") ? <span className="field-error">{err("fee")}</span> : null}
           </label>
           <label className="field">
             <span>
               {taxLabel}
-              <small>選填</small>
+              <small>{estimate.tax ? "沒填就用估算值" : "選填"}</small>
             </span>
-            <input className="input num" name="tax" inputMode="decimal" placeholder="0" defaultValue={initial.tax} aria-invalid={invalid("tax")} />
+            <input
+              className="input num"
+              name="tax"
+              inputMode="decimal"
+              placeholder={estimate.tax ? `估算 ${formatDecimal(estimate.tax.amount)}` : "0"}
+              defaultValue={initial.tax}
+              aria-invalid={invalid("tax")}
+            />
             {err("tax") ? <span className="field-error">{err("tax")}</span> : null}
           </label>
           <label className="field">
@@ -278,6 +313,27 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             <input className="input num" name="otherCost" inputMode="decimal" placeholder="0" defaultValue={initial.otherCost} aria-invalid={invalid("otherCost")} />
             {err("otherCost") ? <span className="field-error">{err("otherCost")}</span> : null}
           </label>
+          {canDayTrade ? (
+            <label className="flex items-center gap-2 text-sm sm:col-span-3">
+              <input type="checkbox" name="dayTrade" checked={dayTrade} onChange={(e) => setDayTrade(e.target.checked)} />
+              現股當沖<small className="text-xs text-ink-3">同一天先買後賣（或先賣後買）同一檔股票，證交稅 0.15%</small>
+            </label>
+          ) : null}
+          {rule.trade ? (
+            <p className="text-xs leading-relaxed text-ink-3 sm:col-span-3" aria-live="polite">
+              {estimate.fee || estimate.tax ? (
+                <>
+                  沒填會自動估算：
+                  {estimate.fee ? `手續費 ${formatDecimal(estimate.fee.amount, { maxFraction: 2 })}（${describeFee(estimate.fee)}）` : ""}
+                  {estimate.fee && estimate.tax ? "；" : ""}
+                  {estimate.tax ? `證交稅 ${formatDecimal(estimate.tax.amount)}（${describeTax(estimate.tax)}）` : ""}
+                  。有對帳單的實際金額就直接填入。
+                </>
+              ) : account?.fees.feeRate === null ? (
+                "這個帳戶沒有開啟自動估算，沒填的費用以 0 計（可到投資組合頁的帳戶「手續費」設定開啟）。"
+              ) : null}
+            </p>
+          ) : null}
           <p className="text-xs text-ink-3 sm:col-span-3">
             {type === "buy"
               ? "買進的手續費與其他費用會計入持倉成本。"

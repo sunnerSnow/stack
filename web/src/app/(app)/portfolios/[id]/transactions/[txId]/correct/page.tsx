@@ -52,7 +52,7 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
         <TransactionForm
           portfolioId={id}
           today={todayInTaipei()}
-          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
+          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency, fees: a.fees }))}
           correctionOf={t.id}
           initial={{
             type: t.type,
@@ -63,10 +63,12 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
             quantity: t.quantity ?? "",
             unitPrice: t.unitPrice ?? "",
             amount: rule.trade ? "" : t.grossAmount,
-            fee: blankIfZero(t.fee),
-            tax: blankIfZero(t.tax),
+            // 原本是系統估算的費用留空：送出時依新內容重新估算
+            fee: t.costEstimate?.fee ? "" : blankIfZero(t.fee),
+            tax: t.costEstimate?.tax ? "" : blankIfZero(t.tax),
             otherCost: blankIfZero(t.otherCost),
             notes: t.notes ?? "",
+            dayTrade: t.dayTrade,
           }}
         />
       </section>

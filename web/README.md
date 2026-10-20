@@ -26,6 +26,7 @@ npm run dev          # http://localhost:3000
 2. 到 **SQL Editor** 依檔名順序貼上並執行 `supabase/migrations/` 裡的每一份（都可重複執行）：
    1. `20261016000000_phase1_ledger.sql`
    2. `20261019000000_reversals.sql`（沖銷、更正與稽核紀錄）
+   3. `20261021000000_cost_estimates.sql`（帳戶手續費設定、交易的估算紀錄與當沖標記）
 
    - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
@@ -99,6 +100,12 @@ tests/                 Vitest
   - 同一個代號如果使用者早就存成私人資產，之後一律沿用私人的那筆（搜尋也只顯示它），持倉才不會被拆成兩個資產。
   - 交易表單輸入代號或名稱時即時查詢（`/api/assets`），不再一次載入整份清單。
 - **持倉批次是衍生資料。** 每次新增買賣，會把同一帳戶＋資產的所有買賣依時間重播一次，重建 `position_lots` 與 `lot_disposals`。補登較早日期的交易也會得到一致的 FIFO 結果，畫面會告訴你重新計算了幾筆既有賣出；如果補登會讓任何時點的持倉變負，整筆拒絕。
+- **手續費與證交稅估算**（`src/lib/ledger/costs.ts`，伺服器入帳與表單即時顯示共用同一份）：
+  - 只在使用者**沒填**、而且帳戶開了自動估算時使用；有填（包括填 0）一律用實際金額。估算的金額與依據存在 `transactions.cost_estimate`，畫面標「估算」，明細頁附法源連結。
+  - 手續費依帳戶設定：成交金額 × 費率 × 折扣，捨入到幣別最小單位（台幣元、美元分；可選無條件捨去或四捨五入），再套最低手續費（台股不是 1,000 股整數倍的算零股，可另設最低）與上限。月退的折扣請設成不打折。
+  - 證交稅只有台股賣出，元以下捨去，規則表 `TW_TAX_RULES` 依交易日選用：股票與特別股 0.3%、ETF 與 TDR 0.1%（證交稅條例 §2、財政部函釋）、債券 ETF 至 2026-12-31 免徵（§2-1；代號 B 結尾，槓桿 L／反向 R 不適用）、股票現股當沖 0.15% 至 2027-12-31（§2-2，表單勾選「現股當沖」）。期限到了沒延長就自動回到一般稅率；修法延長時改規則表的日期。
+  - 新建的台幣券商帳戶預設開啟估算（0.1425%、不打折、整股最低 20、零股最低 1）；美元與現金帳戶預設不估算。改設定只影響之後的交易。
+  - 美股的 SEC／交易所規費沒有估算，請記在「其他費用」。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
 - **防重複送出。** 每次打開表單產生一個 `clientRequestId`（每位使用者唯一）。同一個 ID 再送一次會回傳原本那筆（API 回 200、`meta.duplicate: true`）；同一個 ID 拿來送不同內容會回 409。
 - **金額以字串傳輸。** API 的金額、數量都是十進位字串；送 JSON number 會被拒絕（避免 `0.1 + 0.2` 這類精度問題）。
@@ -129,10 +136,13 @@ tests/                 Vitest
 | GET | `/api/transactions?portfolioId=&accountId=&limit=` | 交易列表 |
 | POST | `/api/transactions` | 新增交易 |
 | GET | `/api/transactions/:id` | 交易明細、FIFO 分配與稽核紀錄 |
+| PATCH | `/api/accounts/:id/fees` | 帳戶手續費設定 `{ enabled, ratePercent, discount（折）, min, minOddLot, max, rounding }` |
 | PATCH | `/api/transactions/:id` | 更正交易：沖銷原交易並依 body 新增一筆（格式同新增交易，另可帶 `reason`）；`data` 是新交易 |
 | POST | `/api/transactions/:id/reversal` | 沖銷交易，body `{ clientRequestId, reason? }`；`data` 是沖銷交易 |
 | GET | `/api/assets?q=&market=TW\|US&limit=` | 搜尋資產主檔（`q` 必填：代號開頭或名稱包含） |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
+
+新增交易時 `fee`、`tax` 省略代表「依帳戶設定估算」，送 `"0"` 代表實際就是 0；台股賣出可帶 `dayTrade: true`（現股當沖）。
 
 未登入回 401；別人的資源一律回 404（不透露是否存在）。沖銷與更正也用 `clientRequestId` 防重複送出；已經沖銷過的交易回 409 `already_reversed`，沖銷交易本身回 409 `not_reversible`，更正內容跟原交易一樣回 400 `no_change`。
 
