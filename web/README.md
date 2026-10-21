@@ -30,6 +30,7 @@ npm run dev          # http://localhost:3000
    4. `20261022000000_snapshots_imports.sql`（庫存快照、匯入批次與每一列）
    5. `20261023000000_prices_fx_valuations.sql`（收盤價、匯率、每日淨值快照）
    6. `20261024000000_price_backfill.sql`（歷史收盤價回補的來源）
+   7. `20261025000000_benchmarks.sql`（比較基準的定義、每日值、每個投資組合選的基準）
 
    - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
@@ -125,7 +126,12 @@ tests/                 Vitest
   - **XIRR**：入金為負、出金為正、期末淨值為正；掃 −99.99%～+10,000% 找變號區間，只有一個才用二分法求解。
   - **簡單報酬率** = 整體損益 ÷ 淨投入（淨投入不是正數就「不適用」）。**整體投資損益** = 期末淨值 − 淨投入。
   - 損益拆解：已實現、未實現、股息利息、單獨記的費用稅費以發生日匯率換算，未實現用今天的價格與匯率；**匯率影響（估算）** = 整體損益減去前述各項的差額（全部是基準幣別時恆為 0，不顯示）。
-  - 算不出來（沒有入金、淨值為負、缺價格或匯率、XIRR 無解或多重解）一律顯示「無法計算」與原因，不回 0。
+  - 算不出來（沒有入金、淨值為負、沒投入資金卻有淨值、缺價格或匯率、XIRR 無解或多重解）一律顯示「無法計算」與原因，不回 0；現金為負的日子另外提醒（入金被低估，報酬率可能失真）。
+- **基準比較與走勢圖**（`src/lib/performance/periods.ts`、`src/lib/market/benchmarks.ts`、`src/lib/services/benchmarks.ts`，規格 7.5）：
+  - 可選的基準：台灣加權報酬指數（含息，台幣組合預設）、台灣加權指數（不含息）、VOO 含息（調整後收盤價，美元組合預設）、VOO 不含息。**價格報酬與總報酬一律標示**，不混用。0050 有 2025 年 1 拆 4，未調整的收盤價會失真，所以不列入（等公司行動做好再加）。
+  - 每天的排程從 FinMind 抓基準值：往後從已有的最後一天抓到今天，往前補到最早一筆交易的前 10 天（補過的起點記在 `backfilled_from`）。VOO 的調整後收盤價每次配息都會整串往回改，所以只用同一次抓到的資料算日報酬、接在已存的值上；銜接日不在資料裡就回報錯誤，不硬接。
+  - 比較時兩邊用同一段日期與同一個幣別：起點是期間第一天的前一天收盤；投資組合從那天的淨值起逐日連乘 TWR，基準用同一天（休市用之前最近的交易日，最多 14 天）的值。外幣基準以臺銀即期中價逐日換算成組合的基準幣別（含匯率變動，選了之後排程會補匯率）。基準缺資料就標示缺漏，不補造。
+  - 期間：1M、3M、6M、今年以來、1Y、全部、自訂，期間與基準在同一列，作用在下面所有數字與兩張圖（累積報酬比較、淨值與累積淨投入）。圖可以用游標或方向鍵逐日看，也可以切成表格。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
 - **防重複送出。** 每次打開表單產生一個 `clientRequestId`（每位使用者唯一）。同一個 ID 再送一次會回傳原本那筆（API 回 200、`meta.duplicate: true`）；同一個 ID 拿來送不同內容會回 409。
 - **金額以字串傳輸。** API 的金額、數量都是十進位字串；送 JSON number 會被拒絕（避免 `0.1 + 0.2` 這類精度問題）。
@@ -166,8 +172,10 @@ tests/                 Vitest
 | GET | `/api/assets?q=&market=TW\|US&limit=` | 搜尋資產主檔（`q` 必填：代號開頭或名稱包含） |
 | GET | `/api/portfolios/:id/valuation?asOf=` | 估值（基準幣別、各持股價格日期、使用的匯率、缺漏清單） |
 | GET | `/api/portfolios/:id/history` | 每日淨值快照 |
-| GET | `/api/portfolios/:id/performance?asOf=` | 績效：整體損益、簡單報酬率、XIRR、TWR、損益拆解、每日淨值 |
-| GET | `/api/cron/sync-prices` | 同步收盤價與匯率並記每日淨值快照；只接受 `Authorization: Bearer <CRON_SECRET>` |
+| GET | `/api/portfolios/:id/performance?asOf=` | 績效：整體損益、簡單報酬率、XIRR、TWR、損益拆解、基準比較、每日淨值與基準值 |
+| PUT | `/api/portfolios/:id/benchmark` | 設定比較基準，body `{ benchmarkId }` |
+| GET | `/api/benchmarks` | 可選的比較基準（`returnBasis`：`price` 價格報酬／`total_return` 總報酬） |
+| GET | `/api/cron/sync-prices` | 同步收盤價、匯率、比較基準並記每日淨值快照；只接受 `Authorization: Bearer <CRON_SECRET>` |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
 
 新增交易時 `fee`、`tax` 省略代表「依帳戶設定估算」，送 `"0"` 代表實際就是 0；台股賣出可帶 `dayTrade: true`（現股當沖）。

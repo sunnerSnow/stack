@@ -99,6 +99,46 @@ export interface TwrResult {
   reason: string | null;
 }
 
+export interface TwrPath {
+  status: "ok" | "gap" | "non_positive" | "no_capital";
+  reason: string | null;
+  /** 每一天收盤時的累積報酬（0.25 = 25%）；還沒有資金或算不下去之後為 null */
+  path: (number | null)[];
+  /** 整段的成長倍數（status 為 ok 才有意義） */
+  growth: number;
+}
+
+/**
+ * 從某一天收盤（淨值 openingValue）起逐日連乘；遇到缺值或淨值為負就停下並回傳原因。
+ * openingValue 為 0 表示起點之前沒有資金（例如第一筆交易的前一天）。
+ */
+export function twrPath(points: DailyPoint[], openingValue = 0): TwrPath {
+  const path: (number | null)[] = [];
+  let growth = 1;
+  let computed = 0;
+  let prevValue = openingValue;
+  const stop = (status: "gap" | "non_positive", reason: string): TwrPath => {
+    while (path.length < points.length) path.push(null);
+    return { status, reason, path, growth };
+  };
+  for (const cur of points) {
+    if (cur.value === null) return stop("gap", `${cur.date} 的淨值算不出來（缺價格或匯率）`);
+    const start = prevValue + cur.flow;
+    if (start < 0 || cur.value < 0) return stop("non_positive", `${cur.date} 的淨值是負的（常見原因是少記了入金），時間加權報酬沒有意義`);
+    // 開盤時沒有資金、收盤卻有淨值：錢不是從入金來的（常見是只記了買進），之後的報酬會建立在錯的基礎上
+    if (start === 0 && cur.value !== 0) return stop("non_positive", `${cur.date} 沒有投入資金卻有淨值（常見原因是少記了入金），時間加權報酬沒有意義`);
+    // 開盤時沒有資金（還沒開始或全部提領）：這一天沒有可計算的報酬
+    if (start > 0) {
+      growth *= cur.value / start;
+      computed++;
+    }
+    path.push(computed > 0 ? growth - 1 : null);
+    prevValue = cur.value;
+  }
+  if (computed === 0) return { status: "no_capital", reason: "期間內沒有投入的資金（淨值一直是 0），常見原因是沒有記入金", path, growth };
+  return { status: "ok", reason: null, path, growth };
+}
+
 export function chainTwr(points: DailyPoint[]): TwrResult {
   const from = points[0]?.date ?? null;
   const to = points.at(-1)?.date ?? null;
@@ -106,26 +146,12 @@ export function chainTwr(points: DailyPoint[]): TwrResult {
   const fail = (status: TwrResult["status"], reason: string): TwrResult => ({ status, cumulative: null, annualized: null, from, to, days, reason });
   if (points.length < 2 || days === 0) return fail("too_short", "期間不到一天");
 
-  let growth = 1;
-  let computed = 0;
-  let prevValue = 0; // 第一天之前沒有資金
-  for (const cur of points) {
-    if (cur.value === null) return fail("gap", `${cur.date} 的淨值算不出來（缺價格或匯率）`);
-    const start = prevValue + cur.flow;
-    if (start < 0 || cur.value < 0) return fail("non_positive", `${cur.date} 的淨值是負的（常見原因是少記了入金），時間加權報酬沒有意義`);
-    // 開盤時沒有資金（還沒開始或全部提領）：這一天沒有可計算的報酬
-    if (start > 0) {
-      growth *= cur.value / start;
-      computed++;
-    }
-    prevValue = cur.value;
-  }
-  if (computed === 0) return fail("no_capital", "期間內沒有投入的資金（淨值一直是 0），常見原因是沒有記入金");
-  const cumulative = growth - 1;
+  const r = twrPath(points);
+  if (r.status !== "ok") return fail(r.status, r.reason!);
   return {
     status: "ok",
-    cumulative: fixed(cumulative),
-    annualized: days >= 365 ? fixed(Math.pow(growth, 365 / days) - 1) : null,
+    cumulative: fixed(r.growth - 1),
+    annualized: days >= 365 ? fixed(Math.pow(r.growth, 365 / days) - 1) : null,
     from,
     to,
     days,

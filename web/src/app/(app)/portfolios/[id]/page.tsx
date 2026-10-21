@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { ACCOUNT_TYPE_LABEL, formatDecimal, MARKET_LABEL } from "@/lib/format";
+import { listBenchmarks } from "@/lib/services/benchmarks";
 import { getLatestSnapshots } from "@/lib/services/snapshots";
 import { getPortfolioPerformance, type PerformanceDto } from "@/lib/services/performance";
 import { getPortfolioValuation } from "@/lib/services/valuations";
@@ -16,6 +17,7 @@ import { getTransaction, listTransactions } from "@/lib/services/transactions";
 import { describeFeeSettings } from "@/lib/ledger/costs";
 import { AccountFeesForm } from "./account-fees-form";
 import { CreateAccountForm } from "./create-account-form";
+import { PerformanceCharts } from "./performance-charts";
 
 export const metadata: Metadata = { title: "投資組合" };
 
@@ -48,7 +50,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
-  const [accounts, summary, cash, holdings, transactions, snapshots, valuation, performance] = await Promise.all([
+  const [accounts, summary, cash, holdings, transactions, snapshots, valuation, performance, benchmarkOptions] = await Promise.all([
     listAccounts(db, user.id, id),
     getLedgerSummary(db, user.id, id),
     getCashBalances(db, user.id, id),
@@ -57,6 +59,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
     getLatestSnapshots(db, user.id, id),
     getPortfolioValuation(db, user.id, id),
     getPortfolioPerformance(db, user.id, id),
+    listBenchmarks(db, user.id),
   ]);
   const valued = new Map(valuation.holdings.map((h) => [`${h.accountId}:${h.assetId}`, h]));
   const base = valuation.baseCurrency;
@@ -153,6 +156,17 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
       </section>
 
       <PerformancePanel p={performance} />
+
+      {performance.series.length > 1 ? (
+        <PerformanceCharts
+          portfolioId={id}
+          baseCurrency={performance.baseCurrency}
+          asOf={performance.asOf}
+          series={performance.series}
+          benchmark={performance.benchmark}
+          options={benchmarkOptions}
+        />
+      ) : null}
 
       {/* 帳本彙總：各幣別分開列，不做匯率換算 */}
       <section className="panel">

@@ -205,12 +205,20 @@ export async function backfillHistory(db: Db, fetcher: Fetcher = defaultFetcher,
     }
   }
 
-  // 匯率：從最早一筆「交易幣別與投資組合基準幣別不同」的交易起補
+  // 匯率：從最早一筆「交易幣別與投資組合基準幣別不同」的交易起補；
+  // 選了外幣基準（例如台幣組合比 VOO）的投資組合，從它的第一筆交易起補
   try {
     const result = await db.execute(sql`
-      select (select min(t.trade_date)::text from stack.transactions t
-                join stack.accounts a on a.id = t.account_id join stack.portfolios p on p.id = a.portfolio_id
-               where t.currency <> p.base_currency) "needFrom",
+      select least(
+               (select min(t.trade_date) from stack.transactions t
+                  join stack.accounts a on a.id = t.account_id join stack.portfolios p on p.id = a.portfolio_id
+                 where t.currency <> p.base_currency),
+               (select min(t.trade_date) from stack.transactions t
+                  join stack.accounts a on a.id = t.account_id join stack.portfolios p on p.id = a.portfolio_id
+                  join stack.portfolio_benchmark_settings s on s.portfolio_id = p.id
+                  join stack.benchmark_definitions b on b.id = s.benchmark_id
+                 where b.currency <> p.base_currency)
+             )::text "needFrom",
              (select min(rate_date)::text from stack.fx_rates where base_currency = 'USD' and quote_currency = 'TWD') earliest`);
     const [{ needFrom, earliest }] = (Array.isArray(result) ? result : (result as unknown as { rows: unknown[] }).rows) as { needFrom: string | null; earliest: string | null }[];
     if (needFrom && (earliest === null || earliest > needFrom)) {

@@ -3,6 +3,8 @@
 /*
  * STACK 品牌色只有四個：奶油白 #F5F0E5、深海軍藍 #173451、亮黃 #F5D548、青綠 #187F7C；
  * 其餘是由這四色推出的深淺。損益色（台灣慣例：紅賺綠虧）只用在損益數字上。
+ * 圖表的 series-1／series-2 由海軍藍與亮黃推出、提高彩度與亮度，在 paper 背景上通過亮度帶、彩度、
+ * 色盲分辨與 3:1 對比檢查（不能直接用品牌色：海軍藍太暗、亮黃對比不夠）。
  */
 @theme {
   --color-cream: #f5f0e5;
@@ -20,6 +22,10 @@
   --color-warn-bg: #fff4d6;
   --color-warn: #6b4a00;
   --color-danger: #a8232e;
+  --color-series-1: #2a62b0;
+  --color-series-2: #b98500;
+  --color-series-ref: #6b7c8f;
+  --color-grid: #ece5d6;
 
   --font-display: var(--font-unbounded), var(--font-noto-tc), sans-serif;
   --font-sans: var(--font-noto-tc), system-ui, sans-serif;
@@ -247,6 +253,37 @@ body {
     color: var(--color-sea-dk);
     padding: 10px 14px;
     font-size: 13.5px;
+  }
+
+  /* 分段按鈕（期間切換） */
+  .seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 2px solid var(--color-ink);
+    background: var(--color-paper);
+  }
+  .seg > button {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    border-left: 2px solid var(--color-ink);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .seg > button:first-child {
+    border-left: 0;
+  }
+  .seg > button:hover {
+    background: var(--color-cream);
+  }
+  .seg > button[aria-pressed="true"] {
+    background: var(--color-ink);
+    color: var(--color-cream);
+  }
+  .seg > button:focus-visible {
+    position: relative;
+    outline: 3px solid var(--color-sea);
+    outline-offset: 1px;
   }
 
   .gain {

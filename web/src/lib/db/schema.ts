@@ -257,7 +257,39 @@ export const portfolioValuations = stack.table("portfolio_valuations", {
   createdAt: createdAt(),
 });
 
+/** 基準比較（20261025000000_benchmarks.sql） */
+export const benchmarkDefinitions = stack.table("benchmark_definitions", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  currency: char("currency", { length: 3 }).notNull(),
+  returnBasis: text("return_basis", { enum: ["price", "total_return"] }).notNull(),
+  source: text("source", { enum: ["finmind_tw_index", "finmind_tw_return_index", "finmind_us_close", "finmind_us_adj_close"] }).notNull(),
+  sourceSymbol: text("source_symbol").notNull(),
+  description: text("description").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  backfilledFrom: date("backfilled_from", { mode: "string" }),
+  createdAt: createdAt(),
+});
+
+export const benchmarkPrices = stack.table("benchmark_prices", {
+  benchmarkId: text("benchmark_id").notNull(),
+  priceDate: date("price_date", { mode: "string" }).notNull(),
+  value: amount("value").notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const portfolioBenchmarkSettings = stack.table("portfolio_benchmark_settings", {
+  portfolioId: uuid("portfolio_id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  benchmarkId: text("benchmark_id").notNull(),
+  updatedAt: updatedAt(),
+});
+
 export const schema = {
+  benchmarkDefinitions,
+  benchmarkPrices,
+  portfolioBenchmarkSettings,
   priceHistory,
   fxRates,
   portfolioValuations,

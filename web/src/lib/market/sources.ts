@@ -8,6 +8,7 @@ import { D } from "@/lib/money/decimal";
  * - 美股：FinMind USStockPrice（逐檔查，代號的 . 改成 -，例如 BRK.B → BRK-B）
  * - 台股歷史日線（回補）：FinMind TaiwanStockPrice
  * - 匯率：FinMind TaiwanExchangeRate（臺灣銀行牌告），取即期買入與賣出的中價
+ * - 基準：加權指數（TaiwanStockPrice 的 TAIEX）、加權報酬指數（TaiwanStockTotalReturnIndex）、美股 Close／Adj_Close
  *
  * 沒有成交、停牌或格式不對的列直接略過，不會變成 0。
  */
@@ -23,6 +24,9 @@ export const finmindUsUrl = (symbol: string, startDate: string, endDate?: string
 /** 台股歷史日線（回補用；每天的最新價仍以證交所／櫃買中心為主） */
 export const finmindTwUrl = (symbol: string, startDate: string, endDate?: string) =>
   `${FINMIND}?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(symbol)}${range(startDate, endDate)}`;
+/** 證交所的報酬指數（TAIEX＝加權報酬指數），現金股利再投入 */
+export const finmindTwReturnIndexUrl = (symbol: string, startDate: string, endDate?: string) =>
+  `${FINMIND}?dataset=TaiwanStockTotalReturnIndex&data_id=${encodeURIComponent(symbol)}${range(startDate, endDate)}`;
 export const finmindFxUrl = (currency: string, startDate: string, endDate?: string) =>
   `${FINMIND}?dataset=TaiwanExchangeRate&data_id=${encodeURIComponent(currency)}${range(startDate, endDate)}`;
 
@@ -86,11 +90,11 @@ function finmindData(json: unknown): Record<string, unknown>[] {
   return rows(body.data);
 }
 
-/** FinMind 美股日線；symbol 用我們主檔的寫法（BRK.B） */
-export function parseFinmindUsPrices(json: unknown, symbol: string): ClosePrice[] {
+/** FinMind 美股日線；symbol 用我們主檔的寫法（BRK.B）。field 選 Adj_Close 是含配息、分割調整後的收盤價 */
+export function parseFinmindUsPrices(json: unknown, symbol: string, field: "Close" | "Adj_Close" = "Close"): ClosePrice[] {
   return finmindData(json).flatMap((r) => {
     const date = typeof r.date === "string" && ISO.test(r.date) ? r.date : null;
-    const close = positive(r.Close);
+    const close = positive(r[field]);
     return date && close ? [{ symbol, date, close }] : [];
   });
 }
@@ -100,6 +104,15 @@ export function parseFinmindTwPrices(json: unknown, symbol: string): ClosePrice[
   return finmindData(json).flatMap((r) => {
     const date = typeof r.date === "string" && ISO.test(r.date) ? r.date : null;
     const close = positive(r.close);
+    return date && close ? [{ symbol, date, close }] : [];
+  });
+}
+
+/** FinMind 報酬指數（欄位是 price） */
+export function parseFinmindReturnIndex(json: unknown, symbol: string): ClosePrice[] {
+  return finmindData(json).flatMap((r) => {
+    const date = typeof r.date === "string" && ISO.test(r.date) ? r.date : null;
+    const close = positive(r.price);
     return date && close ? [{ symbol, date, close }] : [];
   });
 }

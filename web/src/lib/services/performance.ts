@@ -4,7 +4,9 @@ import { accounts, assets, cashLedger, fxRates, lotDisposals, positionLots, pric
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { todayInTaipei } from "@/lib/ledger/input";
 import { D, type Dec, ZERO } from "@/lib/money/decimal";
+import { addDays, type ChartPoint, periodResult } from "@/lib/performance/periods";
 import { type CashFlow, chainTwr, type DailyPoint, daysBetween, simpleReturn, type TwrResult, xirr, type XirrResult } from "@/lib/performance/returns";
+import { type BenchmarkDto, benchmarkValues, portfolioBenchmark } from "@/lib/services/benchmarks";
 import { requirePortfolio } from "@/lib/services/portfolios";
 import { isEffectiveTransaction } from "@/lib/services/transactions";
 
@@ -16,7 +18,27 @@ import { isEffectiveTransaction } from "@/lib/services/transactions";
  * - 外部現金流只有入金與出金；股息、買賣不是外部現金流。現金流以發生日匯率換算成基準幣別（交易上有記匯率就用那個）。
  * - TWR：現金流視為當天開盤前發生（先入金才下單），逐日連乘；XIRR：入金為負、出金為正、期末淨值為正。
  * - 快照帳戶沒有入金／出金紀錄，不計入（畫面會說明）。
+ * - 基準比較：基準值換算成基準幣別（外幣基準含匯率變動），與投資組合用同一段日期；
+ *   基準休市的日子沿用之前最近一個交易日的值（最多 14 天），再久就算缺資料，不補造。
  */
+
+const MAX_CARRY_DAYS = 14;
+
+export interface BenchmarkComparisonDto extends BenchmarkDto {
+  /** 使用者自己選的（false＝依基準幣別的預設） */
+  selected: boolean;
+  /** 基準幣別與投資組合不同時，換算成哪個幣別（含匯率變動）；同幣別為 null */
+  convertedTo: string | null;
+  /** 已有的基準資料期間 */
+  dataFrom: string | null;
+  dataTo: string | null;
+  /** 全期間（第一筆交易起）的比較 */
+  portfolioReturn: string | null;
+  benchmarkReturn: string | null;
+  /** 投資組合 − 基準（百分點，以小數表示） */
+  excess: string | null;
+  issues: string[];
+}
 
 export interface PerformanceDto {
   asOf: string;
@@ -47,8 +69,12 @@ export interface PerformanceDto {
   };
   quality: "complete" | "partial";
   issues: string[];
-  /** 每天的淨值（給之後的走勢圖） */
-  series: { date: string; value: string | null }[];
+  benchmark: BenchmarkComparisonDto | null;
+  /**
+   * 每天的資料（給走勢圖）：從第一筆交易的前一天（淨值 0）開始。
+   * value 是收盤淨值、flow 是當天的入金出金（視為開盤前）、benchmark 是基準值（已換算成基準幣別）
+   */
+  series: { date: string; value: string | null; flow: string; benchmark: string | null }[];
 }
 
 interface PriceSeries {
@@ -69,12 +95,6 @@ function lastAtOrBefore(dates: string[], date: string): number {
     } else hi = mid - 1;
   }
   return found;
-}
-
-function addDays(date: string, n: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
 }
 
 export async function getPortfolioPerformance(db: Db, userId: string, portfolioId: string, opts: { asOf?: string } = {}): Promise<PerformanceDto> {
@@ -107,9 +127,11 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
     breakdown: { realized: null, unrealized: null, incomeNet: null, standaloneCosts: null, tradingCosts: null, fxEffect: null },
     quality: "partial",
     issues: [reason],
+    benchmark: null,
     series: [],
   });
   if (ledgerIds.length === 0) return empty("沒有逐筆記帳的帳戶");
+  const chosenBenchmark = await portfolioBenchmark(tx, userId, portfolioId, base);
 
   // 有效的交易（不含沖銷對）與它們的現金效果
   const txs = await tx
@@ -170,8 +192,8 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
     fxSeries.set(key, s);
   }
   const missingFx = new Set<string>();
-  /** 1 單位 currency ＝ 幾單位基準幣別（發生日或之前最近的匯率）；找不到回 null */
-  const rateOn = (currency: string, date: string): Dec | null => {
+  /** 1 單位 currency ＝ 幾單位基準幣別（發生日或之前最近的匯率）；找不到回 null（record 為 false 時不列入投資組合的缺漏） */
+  const rateOn = (currency: string, date: string, record = true): Dec | null => {
     if (currency === base) return new D(1);
     const direct = fxSeries.get(`${currency}/${base}`);
     const i = direct ? lastAtOrBefore(direct.dates, date) : -1;
@@ -179,7 +201,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
     const inverse = fxSeries.get(`${base}/${currency}`);
     const j = inverse ? lastAtOrBefore(inverse.dates, date) : -1;
     if (inverse && j >= 0) return new D(1).dividedBy(inverse.prices[j]);
-    missingFx.add(`${currency}（${date}）`);
+    if (record) missingFx.add(`${currency}（${date}）`);
     return null;
   };
   const txRate = (t: (typeof txs)[number]) => (t.fxRateToBase && t.currency !== base ? new D(t.fxRateToBase) : rateOn(t.currency, t.date));
@@ -196,6 +218,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   const flows: CashFlow[] = [];
   let netContrib = ZERO;
   let negativeDays = 0;
+  let negativeCashDays = 0;
 
   for (let d = start; d <= asOf; d = addDays(d, 1)) {
     let flow: Dec | null = ZERO;
@@ -239,6 +262,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
       value = rate === null ? null : value.plus(amount.times(rate));
     }
     if (value !== null && value.isNegative()) negativeDays++;
+    if ([...cash.values()].some((c) => c.isNegative())) negativeCashDays++;
     points.push({ date: d, value: value === null || flow === null ? null : value.toNumber(), flow: flow?.toNumber() ?? 0 });
   }
 
@@ -305,8 +329,58 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   for (const [assetId, from] of missingPriceFrom) issues.push(`${symbols.get(assetId) ?? assetId} 在 ${from} 起沒有收盤價（歷史價格會在每天的排程裡回補）`);
   if (missingFx.size > 0) issues.push(`缺少匯率：${[...missingFx].slice(0, 3).join("、")}${missingFx.size > 3 ? " 等" : ""}`);
   if (negativeDays > 0) issues.push(`有 ${negativeDays} 天淨值為負，常見原因是少記了入金；報酬率會失真`);
+  else if (negativeCashDays > 0) issues.push(`有 ${negativeCashDays} 天現金為負，可能少記了入金；投入的資金被低估，報酬率可能失真`);
   if (flows.length < 2 && !flowsUnknown) issues.push("沒有入金紀錄：整體損益與報酬率需要知道投入了多少資金");
   if (accts.length > ledgerIds.length) issues.push(`${accts.length - ledgerIds.length} 個快照帳戶沒有入金／出金紀錄，不計入績效`);
+
+  // 基準：每天用當天或之前最近一個交易日的值（最多往前 14 天），換算成基準幣別
+  const firstBase = addDays(start, -1);
+  let benchmark: BenchmarkComparisonDto | null = null;
+  const benchmarkLevel = new Map<string, number | null>();
+  if (chosenBenchmark) {
+    const def = chosenBenchmark.benchmark;
+    const values = await benchmarkValues(tx, def.id, firstBase, asOf);
+    const dates = values.map((v) => v.date);
+    const bIssues: string[] = [];
+    const missingBenchmarkFx = new Set<string>();
+    for (let d = firstBase; d <= asOf; d = addDays(d, 1)) {
+      const i = lastAtOrBefore(dates, d);
+      if (i < 0 || daysBetween(dates[i], d) > MAX_CARRY_DAYS) {
+        benchmarkLevel.set(d, null);
+        continue;
+      }
+      const rate = rateOn(def.currency, d, false);
+      if (rate === null) missingBenchmarkFx.add(d);
+      benchmarkLevel.set(d, rate === null ? null : new D(values[i].value).times(rate).toNumber());
+    }
+    const dataFrom = values[0]?.date ?? null;
+    const dataTo = values.at(-1)?.date ?? null;
+    if (values.length === 0) bIssues.push(`${def.name}還沒有資料（每天收盤後的排程會抓）`);
+    else if (dataFrom! > firstBase) bIssues.push(`${def.name}的資料從 ${dataFrom} 開始，之前的日子無法比較`);
+    if (dataTo !== null && daysBetween(dataTo, asOf) > MAX_CARRY_DAYS) bIssues.push(`${def.name}最新的資料是 ${dataTo}，之後的日子無法比較`);
+    if (missingBenchmarkFx.size > 0) bIssues.push(`缺少 ${def.currency}/${base} 匯率（${[...missingBenchmarkFx][0]} 起有 ${missingBenchmarkFx.size} 天），基準無法換算`);
+    benchmark = {
+      ...def,
+      selected: chosenBenchmark.selected,
+      convertedTo: def.currency === base ? null : base,
+      dataFrom,
+      dataTo,
+      portfolioReturn: null,
+      benchmarkReturn: null,
+      excess: null,
+      issues: bIssues,
+    };
+  }
+  const chartPoints: ChartPoint[] = [
+    { date: firstBase, value: 0, flow: 0, benchmark: benchmarkLevel.get(firstBase) ?? null },
+    ...points.map((p) => ({ date: p.date, value: p.value, flow: p.flow, benchmark: benchmarkLevel.get(p.date) ?? null })),
+  ];
+  if (benchmark) {
+    const all = periodResult(chartPoints, firstBase, asOf);
+    benchmark.portfolioReturn = all.portfolio.value === null ? null : round6(all.portfolio.value);
+    benchmark.benchmarkReturn = all.benchmark.value === null ? null : round6(all.benchmark.value);
+    benchmark.excess = all.excess === null ? null : round6(all.excess);
+  }
 
   const fmt = (v: Dec | null) => (v === null ? null : v.toFixed());
   return {
@@ -330,8 +404,11 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
       tradingCosts: fmt(tradingCosts),
       fxEffect: fmt(fxEffect),
     },
-    quality: missingPriceFrom.size > 0 || missingFx.size > 0 || flowsUnknown || negativeDays > 0 || twr.status !== "ok" ? "partial" : "complete",
+    quality: missingPriceFrom.size > 0 || missingFx.size > 0 || flowsUnknown || negativeDays > 0 || negativeCashDays > 0 || twr.status !== "ok" ? "partial" : "complete",
     issues,
-    series: points.map((p) => ({ date: p.date, value: p.value === null ? null : String(p.value) })),
+    benchmark,
+    series: chartPoints.map((p) => ({ date: p.date, value: p.value === null ? null : String(p.value), flow: String(p.flow), benchmark: p.benchmark === null ? null : String(p.benchmark) })),
   };
 }
+
+const round6 = (n: number) => (Math.round(n * 1e6) / 1e6).toString();

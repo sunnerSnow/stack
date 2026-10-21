@@ -71,6 +71,16 @@ describe("TWR", () => {
     expect(chainTwr([{ date: "2026-01-01", value: 0, flow: 0 }, { date: "2026-01-02", value: 0, flow: 0 }]).status).toBe("no_capital");
   });
 
+  it("沒有投入資金卻有淨值（只記買進、股價上漲）：不拿極小的淨值當基礎連乘，回狀態與原因", () => {
+    // 買進當天收盤小賺 1,000（現金 −145,000、股票 146,000），隔天變 3,000：不能算成 +200%
+    const r = chainTwr([
+      { date: "2026-01-01", value: 1000, flow: 0 },
+      { date: "2026-01-02", value: 3000, flow: 0 },
+    ]);
+    expect(r).toMatchObject({ status: "non_positive", cumulative: null });
+    expect(r.reason).toContain("2026-01-01 沒有投入資金卻有淨值");
+  });
+
   it("簡單報酬率：淨投入不是正數就不適用", () => {
     expect(simpleReturn(120, 1000)).toBe("0.12");
     expect(simpleReturn(120, 0)).toBeNull();
@@ -111,7 +121,8 @@ describe("績效：逐日重建淨值", () => {
     expect(p.twr).toMatchObject({ status: "ok", cumulative: "0.12", annualized: "0.12" });
     // 單一幣別：整體損益 ＝ 已實現＋未實現＋股息 − 費用（沒有匯率影響）
     expect(p.breakdown).toMatchObject({ realized: "0", unrealized: "120000", incomeNet: "0", standaloneCosts: "0", fxEffect: null });
-    expect(p.series).toHaveLength(366);
+    // 從第一筆交易的前一天（淨值 0）起，每天一筆
+    expect(p.series).toHaveLength(367);
   });
 
   it("期中再入金 50 萬：TWR 不受入金影響，XIRR 依時間加權", async () => {
@@ -165,6 +176,17 @@ describe("績效：逐日重建淨值", () => {
     expect(p.xirr.reason).toContain("入金");
     expect(p.twr.status).not.toBe("ok");
     expect(p.issues.join()).toMatch(/少記了入金/);
+    expect(p.quality).toBe("partial");
+  });
+
+  it("入金少記了一點（現金短暫為負、淨值仍為正）：照算，但提醒報酬率可能失真", async () => {
+    await post({ type: "deposit", tradeDate: "2025-01-02", amount: "590000" });
+    await post({ type: "buy", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "600" });
+    await post({ type: "deposit", tradeDate: "2025-01-10", amount: "10000" });
+    await price("2330", "TW", [["2025-01-02", "600"]]);
+    const p = await perf("2025-01-31");
+    expect(p.twr.status).toBe("ok");
+    expect(p.issues.join()).toContain("有 8 天現金為負");
     expect(p.quality).toBe("partial");
   });
 

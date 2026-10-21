@@ -12,6 +12,7 @@ import { isLocalMode } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
+import { setPortfolioBenchmark } from "@/lib/services/benchmarks";
 import { createTdccImport } from "@/lib/services/imports";
 import { createAccount, createPortfolio, listAccounts, updateAccountFees } from "@/lib/services/portfolios";
 import { createSnapshot } from "@/lib/services/snapshots";
@@ -135,6 +136,18 @@ export async function updateAccountFeesAction(portfolioId: string, accountId: st
       max: text(formData, "max"),
       rounding: text(formData, "rounding"),
     });
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  return { done: true };
+}
+
+/** 換比較基準（走勢圖上的下拉選單） */
+export async function setPortfolioBenchmarkAction(portfolioId: string, benchmarkId: string): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  try {
+    await setPortfolioBenchmark(await getDb(), user.id, portfolioId, { benchmarkId });
   } catch (error) {
     return toFormState(error);
   }
