@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { logError, ok } from "@/lib/api/http";
 import { getDb } from "@/lib/db/client";
-import { syncPrices } from "@/lib/market/sync";
+import { backfillHistory, syncPrices } from "@/lib/market/sync";
 import { recordValuations } from "@/lib/services/valuations";
 
 export const maxDuration = 60;
@@ -22,10 +22,16 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const db = await getDb();
     const prices = await syncPrices(db);
+    // 逐筆帳戶交易過的股票補歷史價格（算 TWR 用）；一次最多 40 檔，其餘明天再補
+    const backfill = await backfillHistory(db);
     const valuations = await recordValuations(db);
-    const failed = Boolean(prices.twse.error || prices.tpex.error || prices.fx.error || prices.us.errors.length);
-    if (failed) logError(new Error(`price sync: ${JSON.stringify({ twse: prices.twse.error, tpex: prices.tpex.error, fx: prices.fx.error, us: prices.us.errors })}`));
-    return ok({ prices, valuations }, { status: failed ? 502 : 200 });
+    const failed = Boolean(prices.twse.error || prices.tpex.error || prices.fx.error || prices.us.errors.length || backfill.errors.length || backfill.fx.error);
+    if (failed) {
+      logError(
+        new Error(`price sync: ${JSON.stringify({ twse: prices.twse.error, tpex: prices.tpex.error, fx: prices.fx.error, us: prices.us.errors, backfill: backfill.errors, backfillFx: backfill.fx.error })}`),
+      );
+    }
+    return ok({ prices, backfill, valuations }, { status: failed ? 502 : 200 });
   } catch (error) {
     logError(error);
     return Response.json({ data: null, meta: {}, errors: [{ code: "internal_error", message: "同步失敗" }] }, { status: 500 });

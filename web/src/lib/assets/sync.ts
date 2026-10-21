@@ -97,7 +97,8 @@ export async function applyAssetRecords(db: Db, source: AssetSource, records: As
             assetType: sql`excluded.asset_type`,
             exchange: sql`excluded.exchange`,
             isActive: true,
-            metadata: sql`excluded.metadata`,
+            // 保留行情回補的進度（priceBackfillFrom），其他欄位以來源為準
+            metadata: sql`excluded.metadata || jsonb_strip_nulls(jsonb_build_object('priceBackfillFrom', ${assets.metadata}->'priceBackfillFrom'))`,
             updatedAt: sql`now()`,
           },
         })

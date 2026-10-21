@@ -222,7 +222,7 @@ export const priceHistory = stack.table("price_history", {
   priceDate: date("price_date", { mode: "string" }).notNull(),
   closePrice: amount("close_price").notNull(),
   currency: char("currency", { length: 3 }).notNull(),
-  source: text("source", { enum: ["twse", "tpex", "finmind_us"] }).notNull(),
+  source: text("source", { enum: ["twse", "tpex", "finmind_us", "finmind_tw"] }).notNull(),
   isAdjusted: boolean("is_adjusted").notNull().default(false),
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });

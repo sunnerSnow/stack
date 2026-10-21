@@ -6,6 +6,7 @@ import { D } from "@/lib/money/decimal";
  * - 台股上市：證交所 OpenAPI STOCK_DAY_ALL（最近一個交易日的全部收盤價）
  * - 台股上櫃：櫃買中心 OpenAPI tpex_mainboard_daily_close_quotes
  * - 美股：FinMind USStockPrice（逐檔查，代號的 . 改成 -，例如 BRK.B → BRK-B）
+ * - 台股歷史日線（回補）：FinMind TaiwanStockPrice
  * - 匯率：FinMind TaiwanExchangeRate（臺灣銀行牌告），取即期買入與賣出的中價
  *
  * 沒有成交、停牌或格式不對的列直接略過，不會變成 0。
@@ -15,10 +16,15 @@ export const TWSE_DAY_ALL_URL = "https://openapi.twse.com.tw/v1/exchangeReport/S
 export const TPEX_CLOSE_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";
 const FINMIND = "https://api.finmindtrade.com/api/v4/data";
 
-export const finmindUsUrl = (symbol: string, startDate: string) =>
-  `${FINMIND}?dataset=USStockPrice&data_id=${encodeURIComponent(finmindUsSymbol(symbol))}&start_date=${startDate}`;
-export const finmindFxUrl = (currency: string, startDate: string) =>
-  `${FINMIND}?dataset=TaiwanExchangeRate&data_id=${encodeURIComponent(currency)}&start_date=${startDate}`;
+const range = (startDate: string, endDate?: string) => `&start_date=${startDate}${endDate ? `&end_date=${endDate}` : ""}`;
+
+export const finmindUsUrl = (symbol: string, startDate: string, endDate?: string) =>
+  `${FINMIND}?dataset=USStockPrice&data_id=${encodeURIComponent(finmindUsSymbol(symbol))}${range(startDate, endDate)}`;
+/** 台股歷史日線（回補用；每天的最新價仍以證交所／櫃買中心為主） */
+export const finmindTwUrl = (symbol: string, startDate: string, endDate?: string) =>
+  `${FINMIND}?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(symbol)}${range(startDate, endDate)}`;
+export const finmindFxUrl = (currency: string, startDate: string, endDate?: string) =>
+  `${FINMIND}?dataset=TaiwanExchangeRate&data_id=${encodeURIComponent(currency)}${range(startDate, endDate)}`;
 
 /** Nasdaq 代號表用 BRK.B，FinMind 用 BRK-B */
 export const finmindUsSymbol = (symbol: string) => symbol.replaceAll(".", "-");
@@ -85,6 +91,15 @@ export function parseFinmindUsPrices(json: unknown, symbol: string): ClosePrice[
   return finmindData(json).flatMap((r) => {
     const date = typeof r.date === "string" && ISO.test(r.date) ? r.date : null;
     const close = positive(r.Close);
+    return date && close ? [{ symbol, date, close }] : [];
+  });
+}
+
+/** FinMind 台股日線（欄位是小寫 close；停牌日收盤為 0 的略過） */
+export function parseFinmindTwPrices(json: unknown, symbol: string): ClosePrice[] {
+  return finmindData(json).flatMap((r) => {
+    const date = typeof r.date === "string" && ISO.test(r.date) ? r.date : null;
+    const close = positive(r.close);
     return date && close ? [{ symbol, date, close }] : [];
   });
 }

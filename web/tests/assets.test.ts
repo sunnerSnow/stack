@@ -150,6 +150,13 @@ describe("同步共用資產主檔", () => {
     expect(await shared("9009")).toMatchObject({ is_active: true });
   });
 
+  it("重新同步保留行情回補的進度（metadata.priceBackfillFrom），其他欄位以來源為準", async () => {
+    await applyAssetRecords(db, "twse-isin", [tw("3008", "大立光")]);
+    await db.execute(sql`update stack.assets set metadata = metadata || '{"priceBackfillFrom": "2025-01-05"}' where symbol = '3008' and created_by is null`);
+    await applyAssetRecords(db, "twse-isin", [tw("3008", "大立光電")]);
+    expect(await shared("3008")).toMatchObject({ name: "大立光電", metadata: expect.objectContaining({ priceBackfillFrom: "2025-01-05", source: "twse-isin" }) });
+  });
+
   it("台股與美股分開計算下市：同步台股不會停用美股", async () => {
     await applyAssetRecords(db, "nasdaq-trader", [
       { market: "US", symbol: "AAPL", name: "Apple Inc.", assetType: "stock", exchange: "NASDAQ", currency: "USD", metadata: { source: "nasdaq-trader", kind: "stock" } },

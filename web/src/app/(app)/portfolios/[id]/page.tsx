@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { ACCOUNT_TYPE_LABEL, formatDecimal, MARKET_LABEL } from "@/lib/format";
 import { getLatestSnapshots } from "@/lib/services/snapshots";
+import { getPortfolioPerformance, type PerformanceDto } from "@/lib/services/performance";
 import { getPortfolioValuation } from "@/lib/services/valuations";
 import { D } from "@/lib/money/decimal";
 import { type CurrencyAmount, getCashBalances, getHoldings, getLedgerSummary } from "@/lib/services/positions";
@@ -47,7 +48,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
-  const [accounts, summary, cash, holdings, transactions, snapshots, valuation] = await Promise.all([
+  const [accounts, summary, cash, holdings, transactions, snapshots, valuation, performance] = await Promise.all([
     listAccounts(db, user.id, id),
     getLedgerSummary(db, user.id, id),
     getCashBalances(db, user.id, id),
@@ -55,6 +56,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
     listTransactions(db, user.id, { portfolioId: id, limit: 100 }),
     getLatestSnapshots(db, user.id, id),
     getPortfolioValuation(db, user.id, id),
+    getPortfolioPerformance(db, user.id, id),
   ]);
   const valued = new Map(valuation.holdings.map((h) => [`${h.accountId}:${h.assetId}`, h]));
   const base = valuation.baseCurrency;
@@ -147,9 +149,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
           {valuation.missingFx.length > 0 ? ` 缺少 ${valuation.missingFx.join("、")} 匯率，這些幣別的部分未換算計入。` : ""}
           {valuation.cashIncomplete ? " 有快照帳戶沒填現金。" : ""}
           {valuation.costIncomplete ? " 有持股沒有成本（成本未完整），未實現損益只算有成本的部分。" : ""}
-          報酬率（XIRR、TWR）之後的版本才會計算。
         </p>
       </section>
+
+      <PerformancePanel p={performance} />
 
       {/* 帳本彙總：各幣別分開列，不做匯率換算 */}
       <section className="panel">
@@ -466,6 +469,89 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         )}
       </section>
     </div>
+  );
+}
+
+/** 比率（0.1234）→「+12.34%」 */
+function pct(ratio: string | null): string {
+  return ratio === null ? "—" : `${formatDecimal(new D(ratio).times(100).toFixed(), { maxFraction: 2, signed: true })}%`;
+}
+
+function Metric({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
+  return (
+    <div className="p-5">
+      <p className="kicker">{label}</p>
+      <div className="mt-2 text-[19px] font-medium">{value}</div>
+      {note ? <p className="mt-1 text-xs leading-relaxed text-ink-3">{note}</p> : null}
+    </div>
+  );
+}
+
+/** 績效：算不出來的指標顯示「無法計算」與原因，不顯示 0% */
+function PerformancePanel({ p }: { p: PerformanceDto }) {
+  const base = p.baseCurrency;
+  const unavailable = (reason: string | null) => (
+    <>
+      <span className="tag tag-warn">無法計算</span>
+      <span className="mt-1 block text-xs font-normal leading-relaxed text-ink-3">{reason}</span>
+    </>
+  );
+  const b = p.breakdown;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>績效</h2>
+        <span className="text-xs text-ink-2">
+          {p.from ? (
+            <>
+              逐筆記帳的帳戶 · <span className="num">{p.from}</span> ～ <span className="num">{p.asOf}</span>（{p.days} 天）
+            </>
+          ) : (
+            "逐筆記帳的帳戶"
+          )}
+        </span>
+      </div>
+      <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
+        <Metric
+          label={`整體投資損益（${base}）`}
+          value={p.totalPnl === null ? unavailable("缺少淨投入或期末淨值") : <Pnl value={p.totalPnl} currency={base} />}
+          note={p.netContributions !== null ? <>總淨值 − 淨投入 <Amount value={p.netContributions} currency={base} /></> : undefined}
+        />
+        <Metric label="簡單報酬率" value={p.simpleReturn === null ? <span className="text-ink-3">不適用</span> : <span className="num">{pct(p.simpleReturn)}</span>} note="整體損益 ÷ 淨投入" />
+        <Metric
+          label="XIRR（年化）"
+          value={p.xirr.status === "ok" ? <span className="num">{pct(p.xirr.rate)}</span> : unavailable(p.xirr.reason)}
+          note={p.xirr.status === "ok" ? "資金加權：入金為負、出金為正、期末淨值為正" : undefined}
+        />
+        <Metric
+          label="TWR（累積）"
+          value={p.twr.status === "ok" ? <span className="num">{pct(p.twr.cumulative)}</span> : unavailable(p.twr.reason)}
+          note={p.twr.status === "ok" ? (p.twr.annualized !== null ? `年化 ${pct(p.twr.annualized)}` : "期間不滿一年，不年化") : undefined}
+        />
+      </div>
+      <dl className="grid gap-x-6 gap-y-1 border-t-2 border-ink px-5 py-3 text-sm sm:grid-cols-3">
+        {(
+          [
+            ["已實現", <Pnl key="r" value={b.realized} currency={base} />],
+            ["未實現", <Pnl key="u" value={b.unrealized} currency={base} />],
+            ["股息利息（稅後）", <Amount key="i" value={b.incomeNet} currency={base} />],
+            ["單獨記的費用稅費", <Amount key="c" value={b.standaloneCosts} currency={base} />],
+            ["交易成本（已含在損益裡）", <Amount key="t" value={b.tradingCosts} currency={base} />],
+            ["匯率影響（估算）", b.fxEffect === null ? <span key="f" className="text-ink-3">—</span> : <Pnl key="f" value={b.fxEffect} currency={base} />],
+          ] as [string, React.ReactNode][]
+        ).map(([label, value]) => (
+          <div key={label} className="flex items-baseline justify-between gap-3">
+            <dt className="text-xs text-ink-2">{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+        <QualityTag quality={p.quality === "complete" ? "complete" : "partial"} />{" "}
+        每天用當天或之前最近的收盤價與匯率重建淨值；持股與現金都以成交日計。TWR 的入金／出金視為當天開盤前發生（先入金才下單）；各項損益以發生日匯率換算，未實現用今天的價格與匯率；匯率影響是整體損益減去各項損益的差額。
+        {p.issues.map((issue) => ` ${issue}。`)}
+      </p>
+    </section>
   );
 }
 
