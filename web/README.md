@@ -31,6 +31,7 @@ npm run dev          # http://localhost:3000
    5. `20261023000000_prices_fx_valuations.sql`（收盤價、匯率、每日淨值快照）
    6. `20261024000000_price_backfill.sql`（歷史收盤價回補的來源）
    7. `20261025000000_benchmarks.sql`（比較基準的定義、每日值、每個投資組合選的基準）
+   8. `20261026000000_market_rotation.sql`（族群輪動：上市櫃每日行情與法人、除權息參考價、族群與成員、強度與動能）
 
    - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
@@ -132,6 +133,11 @@ tests/                 Vitest
   - 每天的排程從 FinMind 抓基準值：往後從已有的最後一天抓到今天，往前補到最早一筆交易的前 10 天（補過的起點記在 `backfilled_from`）。VOO 的調整後收盤價每次配息都會整串往回改，所以只用同一次抓到的資料算日報酬、接在已存的值上；銜接日不在資料裡就回報錯誤，不硬接。
   - 比較時兩邊用同一段日期與同一個幣別：起點是期間第一天的前一天收盤；投資組合從那天的淨值起逐日連乘 TWR，基準用同一天（休市用之前最近的交易日，最多 14 天）的值。外幣基準以臺銀即期中價逐日換算成組合的基準幣別（含匯率變動，選了之後排程會補匯率）。基準缺資料就標示缺漏，不補造。
   - 期間：1M、3M、6M、今年以來、1Y、全部、自訂，期間與基準在同一列，作用在下面所有數字與兩張圖（累積報酬比較、淨值與累積淨投入）。圖可以用游標或方向鍵逐日看，也可以切成表格。
+- **族群輪動**（EXPLORE，`src/lib/market/`：`exchange-sources.ts`、`market-sync.ts`、`rotation.ts`、`rotation-compute.ts`、`groups.ts`；頁面 `/market`）：
+  - 資料：證交所每日收盤行情（MI_INDEX）與三大法人（T86）、櫃買中心上櫃行情（dailyQuotes）與三大法人（insti/dailyTrade），只存資產主檔裡的共用台股，保留約 260 天（約 100 MB）。除權息那天證交所的漲跌價差是 0（標 X），所以另抓除權除息計算結果（證交所 TWT49U、櫃買 exDailyQ）的參考價來算還原報酬。
+  - 排程 `/api/cron/sync-market`（平日台北 18:00）：同步族群清單 → 抓資料（有時間預算，回補分好幾次；舊的日子先補）→ 算強度與動能。證交所擋請求時（回 HTML）就先停。回補可以在本機用 `?budget=秒數` 一次抓久一點。
+  - 算法（版本 `rot-v1`，畫面上的「怎麼算的」有寫）：還原指數 ÷ 台灣加權報酬指數＝RS；強度＝100 × RS 的 10 日平均 ÷ 60 日平均；動能＝100 × 今天強度 ÷ 5 日前強度。族群＝成員還原報酬的等權重平均。要 65 個交易日暖機，不足標「暖機中」。
+  - 層級：板塊（`SECTORS`）> 產業（證交所產業別，存在資產的 `metadata.industry`）> 族群（`THEMES`，整理過的清單，成員寫「代號 名稱」，同步時名稱對不上的不加入並列出）> 個股。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
 - **防重複送出。** 每次打開表單產生一個 `clientRequestId`（每位使用者唯一）。同一個 ID 再送一次會回傳原本那筆（API 回 200、`meta.duplicate: true`）；同一個 ID 拿來送不同內容會回 409。
 - **金額以字串傳輸。** API 的金額、數量都是十進位字串；送 JSON number 會被拒絕（避免 `0.1 + 0.2` 這類精度問題）。
@@ -177,6 +183,10 @@ tests/                 Vitest
 | GET | `/api/benchmarks` | 可選的比較基準（`returnBasis`：`price` 價格報酬／`total_return` 總報酬） |
 | GET | `/api/cron/sync-prices` | 同步收盤價、匯率、比較基準並記每日淨值快照；只接受 `Authorization: Bearer <CRON_SECRET>` |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
+| GET | `/api/cron/sync-market?budget=` | 族群輪動：同步族群清單、抓上市櫃行情與法人、算強度與動能；只接受 `Authorization: Bearer <CRON_SECRET>` |
+| GET | `/api/market/rotation?level=theme\|industry\|sector&date=` | 族群（產業、板塊）的強度、動能、漲跌、成交金額、法人金額與 10 日軌跡 |
+| GET | `/api/market/groups/:id?date=` | 族群成員與 60 日法人金額 |
+| GET | `/api/market/stocks?date=` | 個股篩選：續強、轉強 |
 
 新增交易時 `fee`、`tax` 省略代表「依帳戶設定估算」，送 `"0"` 代表實際就是 0；台股賣出可帶 `dayTrade: true`（現股當沖）。
 

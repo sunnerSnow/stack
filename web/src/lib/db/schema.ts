@@ -1,4 +1,4 @@
-import { boolean, char, date, integer, jsonb, numeric, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, date, integer, jsonb, numeric, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /**
  * 與 supabase/migrations/ 對應的 Drizzle schema。
@@ -286,7 +286,74 @@ export const portfolioBenchmarkSettings = stack.table("portfolio_benchmark_setti
   updatedAt: updatedAt(),
 });
 
+/** 族群輪動（20261026000000_market_rotation.sql） */
+export const marketDaily = stack.table("market_daily", {
+  assetId: uuid("asset_id").notNull(),
+  tradeDate: date("trade_date", { mode: "string" }).notNull(),
+  close: numeric("close", { precision: 14, scale: 4 }),
+  volume: bigint("volume", { mode: "number" }),
+  turnover: bigint("turnover", { mode: "number" }),
+  foreignNet: bigint("foreign_net", { mode: "number" }),
+  trustNet: bigint("trust_net", { mode: "number" }),
+  dealerNet: bigint("dealer_net", { mode: "number" }),
+  strength: numeric("strength", { precision: 10, scale: 4 }),
+  momentum: numeric("momentum", { precision: 10, scale: 4 }),
+});
+
+export const marketExRights = stack.table("market_ex_rights", {
+  assetId: uuid("asset_id").notNull(),
+  exDate: date("ex_date", { mode: "string" }).notNull(),
+  prevClose: numeric("prev_close", { precision: 14, scale: 4 }).notNull(),
+  refPrice: numeric("ref_price", { precision: 14, scale: 4 }).notNull(),
+});
+
+export const marketSyncLog = stack.table("market_sync_log", {
+  tradeDate: date("trade_date", { mode: "string" }).notNull(),
+  source: text("source", { enum: ["twse_quotes", "twse_inst", "tpex_quotes", "tpex_inst"] }).notNull(),
+  rows: integer("rows").notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const marketGroups = stack.table("market_groups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  level: text("level", { enum: ["market", "sector", "industry", "theme"] }).notNull(),
+  parentId: text("parent_id"),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: updatedAt(),
+});
+
+export const marketGroupMembers = stack.table("market_group_members", {
+  groupId: text("group_id").notNull(),
+  assetId: uuid("asset_id").notNull(),
+});
+
+export const marketGroupDaily = stack.table("market_group_daily", {
+  groupId: text("group_id").notNull(),
+  tradeDate: date("trade_date", { mode: "string" }).notNull(),
+  indexLevel: numeric("index_level", { precision: 18, scale: 6 }).notNull(),
+  ret: numeric("ret", { precision: 12, scale: 8 }),
+  strength: numeric("strength", { precision: 10, scale: 4 }),
+  momentum: numeric("momentum", { precision: 10, scale: 4 }),
+  turnover: bigint("turnover", { mode: "number" }),
+  foreignNet: bigint("foreign_net", { mode: "number" }),
+  trustNet: bigint("trust_net", { mode: "number" }),
+  dealerNet: bigint("dealer_net", { mode: "number" }),
+  members: integer("members").notNull(),
+  upCount: integer("up_count").notNull(),
+  strongCount: integer("strong_count").notNull(),
+  calcVersion: text("calc_version").notNull(),
+});
+
 export const schema = {
+  marketDaily,
+  marketExRights,
+  marketSyncLog,
+  marketGroups,
+  marketGroupMembers,
+  marketGroupDaily,
   benchmarkDefinitions,
   benchmarkPrices,
   portfolioBenchmarkSettings,

@@ -40,7 +40,7 @@ XYZU|XYZ Corp Units|A|XYZU|N|100|N|XYZU
 File Creation Time: 1019202621:31||||||`;
 
 describe("解析資料來源", () => {
-  it("台股：跳過表頭，帶出代號、名稱、ISIN、CFI 與上市日", () => {
+  it("台股：跳過表頭，帶出代號、名稱、ISIN、CFI、上市日與產業別", () => {
     const rows = parseTwClassPage(
       twPage([
         ["TW0002330008", "2330", "台積電", "1994/09/05", "ESVUFR"],
@@ -56,7 +56,7 @@ describe("解析資料來源", () => {
         assetType: "stock",
         exchange: "TWSE",
         currency: "TWD",
-        metadata: { source: "twse-isin", kind: "stock", isin: "TW0002330008", cfi: "ESVUFR", listedOn: "1994-09-05" },
+        metadata: { source: "twse-isin", kind: "stock", isin: "TW0002330008", cfi: "ESVUFR", listedOn: "1994-09-05", industry: "半導體業" },
       },
       expect.objectContaining({ symbol: "1101", name: "台泥" }),
     ]);

@@ -145,7 +145,7 @@ describe("每天更新基準", () => {
     return { calls, fetcher };
   };
 
-  it("第一次從最早一筆交易的前 10 天抓到今天；之後只往後抓，VOO 含息版接在已存的值上", async () => {
+  it("第一次從「最早一筆交易」與「220 天前」較早者的前 10 天抓到今天；之後只往後抓，VOO 含息版接在已存的值上", async () => {
     await post({ type: "deposit", tradeDate: "2026-09-02", amount: "1000" });
     const data = {
       "TaiwanStockTotalReturnIndex:TAIEX": [
@@ -161,7 +161,7 @@ describe("每天更新基準", () => {
     const first = finmind(data);
     const report = await syncBenchmarks(db, first.fetcher, { today: "2026-09-02" });
     expect(report).toMatchObject({ benchmarks: 4, stored: 7, errors: [] });
-    expect(first.calls[0]).toContain("dataset=TaiwanStockTotalReturnIndex&data_id=TAIEX&start_date=2026-08-23&end_date=2026-09-02");
+    expect(first.calls[0]).toContain("dataset=TaiwanStockTotalReturnIndex&data_id=TAIEX&start_date=2026-01-15&end_date=2026-09-02");
     expect(await stored("voo_tr")).toEqual([
       ["2026-09-01", 698],
       ["2026-09-02", 701],
@@ -197,7 +197,7 @@ describe("每天更新基準", () => {
       "USStockPrice:VOO": [{ date: "2026-08-03", Close: 690, Adj_Close: 680 }],
     });
     const report = await syncBenchmarks(db, fetcher, { today: "2026-09-01" });
-    expect(calls.find((u) => u.includes("TaiwanStockTotalReturnIndex"))).toContain("start_date=2026-08-01&end_date=2026-09-01");
+    expect(calls.find((u) => u.includes("TaiwanStockTotalReturnIndex"))).toContain("start_date=2026-01-14&end_date=2026-09-01");
     expect(await stored("taiex_tr")).toEqual([
       ["2026-08-03", 98000],
       ["2026-09-01", 100000],

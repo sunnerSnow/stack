@@ -16,7 +16,8 @@ import {
 /**
  * 每天更新比較基準的值（排程以資料庫擁有者身分執行）。
  *
- * - 往後：從已有的最後一天抓到今天；往前：補到「最早一筆交易的前 10 天」（補過的起點記在 backfilled_from，不會每天重抓）。
+ * - 往後：從已有的最後一天抓到今天；往前：補到「最早一筆交易」與「今天往前 220 天（族群輪動要用）」較早者的前 10 天
+ *   （補過的起點記在 backfilled_from，不會每天重抓）。
  * - 指數直接存指數值。VOO 含息版用調整後收盤價：每次配息後，整串歷史的調整後收盤價都會被等比例改掉，
  *   所以只用「同一次抓到的資料」算日報酬，再接在已存的那一天上（銜接日必須在這次抓到的資料裡）。
  */
@@ -105,11 +106,15 @@ async function storedEnds(db: Db, benchmarkId: string): Promise<{ first: Benchma
   return { first, last };
 }
 
-/** 需要基準資料的最早日期：所有交易裡最早的交易日前 10 天；還沒有交易就只抓最近 10 天 */
+/** 族群輪動需要的歷史（強度要 65 個交易日暖機，再留一段可以回看） */
+const MARKET_HISTORY_DAYS = 220;
+
+/** 需要基準資料的最早日期：最早一筆交易與「今天往前 220 天」較早的那個，再往前 10 天 */
 async function neededFrom(db: Db, today: string): Promise<string> {
   const result = await db.execute(sql`select min(trade_date)::text "first" from stack.transactions`);
   const [{ first }] = (Array.isArray(result) ? result : (result as unknown as { rows: unknown[] }).rows) as { first: string | null }[];
-  return minusDays(first && first < today ? first : today, 10);
+  const market = minusDays(today, MARKET_HISTORY_DAYS);
+  return minusDays(first && first < market ? first : market, 10);
 }
 
 export async function syncBenchmarks(db: Db, fetcher: Fetcher = defaultFetcher, opts: { today?: string } = {}): Promise<BenchmarkSyncReport> {

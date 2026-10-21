@@ -203,6 +203,21 @@ body {
     color: var(--color-sun);
     border-color: var(--color-sun);
   }
+  .navy-block .seg {
+    background: transparent;
+    border-color: var(--color-cream);
+  }
+  .navy-block .seg > button {
+    color: var(--color-cream);
+    border-left-color: var(--color-cream);
+  }
+  .navy-block .seg > button:hover {
+    background: rgba(245, 240, 229, 0.12);
+  }
+  .navy-block .seg > button[aria-pressed="true"] {
+    background: var(--color-cream);
+    color: var(--color-ink);
+  }
   .navy-block .gain {
     color: #ff9c9c;
   }
@@ -220,6 +235,12 @@ body {
     border-bottom: 3px solid transparent;
     padding: 2px 0;
     white-space: nowrap;
+  }
+  @media (max-width: 420px) {
+    .nav-mod {
+      font-size: 10.5px;
+      letter-spacing: 0.06em;
+    }
   }
   .nav-mod:hover {
     border-bottom-color: var(--color-ink);

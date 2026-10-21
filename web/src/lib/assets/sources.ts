@@ -25,6 +25,8 @@ export interface AssetRecord {
     cfi?: string;
     /** 上市（櫃）日 YYYY-MM-DD */
     listedOn?: string;
+    /** 證交所的產業別（例如「半導體業」）；ETF 沒有 */
+    industry?: string;
   };
 }
 
@@ -71,7 +73,7 @@ export function parseTwClassPage(html: string, cls: TwClass): AssetRecord[] {
   for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((c) => cellText(c[1]));
     if (cells.length < 9) continue;
-    const [, isin, rawSymbol, rawName, , , , listed, cfi] = cells;
+    const [, isin, rawSymbol, rawName, , , industry, listed, cfi] = cells;
     const symbol = rawSymbol.toUpperCase();
     // 表頭列與格式不符的代號跳過
     if (!SYMBOL_RE.test(symbol) || !rawName) continue;
@@ -90,6 +92,7 @@ export function parseTwClassPage(html: string, cls: TwClass): AssetRecord[] {
         ...(isin ? { isin } : {}),
         ...(cfi ? { cfi } : {}),
         ...(listedOn ? { listedOn } : {}),
+        ...(industry ? { industry } : {}),
       },
     });
   }
