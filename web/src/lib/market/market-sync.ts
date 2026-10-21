@@ -165,11 +165,12 @@ export async function syncMarket(
   // 舊的日子先補：累積到 65 個交易日就能開始算強度，不用等整段補完
   const todo = days.flatMap((d) => SOURCES.filter((s) => !done.has(`${d}:${s}`)).map((s) => ({ date: d, source: s })));
 
-  // 除權息參考價：整段期間一次抓（上市、上櫃各一次）
+  // 除權息參考價：從最早還沒抓的那天抓到今天（上市、上櫃各一次）；都抓齊了就只抓最近 10 天
+  const exFrom = todo.length > 0 ? todo[0].date : minusDays(today, 10);
   try {
-    report.exRights += await storeExRights(db, parseTwseExRights(await getJson(fetcher, twseExRightsUrl(days[0], today))), ids);
+    report.exRights += await storeExRights(db, parseTwseExRights(await getJson(fetcher, twseExRightsUrl(exFrom, today))), ids);
     await sleep(pause);
-    report.exRights += await storeExRights(db, parseTpexExRights(await getJson(fetcher, tpexExRightsUrl(days[0], today))), ids);
+    report.exRights += await storeExRights(db, parseTpexExRights(await getJson(fetcher, tpexExRightsUrl(exFrom, today))), ids);
   } catch (e) {
     report.errors.push(`除權息：${message(e)}`);
   }

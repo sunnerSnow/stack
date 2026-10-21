@@ -135,7 +135,7 @@ tests/                 Vitest
   - 期間：1M、3M、6M、今年以來、1Y、全部、自訂，期間與基準在同一列，作用在下面所有數字與兩張圖（累積報酬比較、淨值與累積淨投入）。圖可以用游標或方向鍵逐日看，也可以切成表格。
 - **族群輪動**（EXPLORE，`src/lib/market/`：`exchange-sources.ts`、`market-sync.ts`、`rotation.ts`、`rotation-compute.ts`、`groups.ts`；頁面 `/market`）：
   - 資料：證交所每日收盤行情（MI_INDEX）與三大法人（T86）、櫃買中心上櫃行情（dailyQuotes）與三大法人（insti/dailyTrade），只存資產主檔裡的共用台股，保留約 260 天（約 100 MB）。除權息那天證交所的漲跌價差是 0（標 X），所以另抓除權除息計算結果（證交所 TWT49U、櫃買 exDailyQ）的參考價來算還原報酬。
-  - 排程 `/api/cron/sync-market`（平日台北 18:00）：同步族群清單 → 抓資料（有時間預算，回補分好幾次；舊的日子先補）→ 算強度與動能。證交所擋請求時（回 HTML）就先停。回補可以在本機用 `?budget=秒數` 一次抓久一點。
+  - 排程兩個（各有 60 秒）：`/api/cron/sync-market`（平日台北 18:00）同步族群清單 → 抓資料（有時間預算，回補分好幾次；舊的日子先補；證交所擋請求時回 HTML 就先停）；`/api/cron/compute-market`（19:00）算強度與動能。回補可以在本機用 `?budget=秒數` 一次抓完並算完。
   - 算法（版本 `rot-v1`，畫面上的「怎麼算的」有寫）：還原指數 ÷ 台灣加權報酬指數＝RS；強度＝100 × RS 的 10 日平均 ÷ 60 日平均；動能＝100 × 今天強度 ÷ 5 日前強度。族群＝成員還原報酬的等權重平均。要 65 個交易日暖機，不足標「暖機中」。
   - 層級：板塊（`SECTORS`）> 產業（證交所產業別，存在資產的 `metadata.industry`）> 族群（`THEMES`，整理過的清單，成員寫「代號 名稱」，同步時名稱對不上的不加入並列出）> 個股。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
@@ -183,7 +183,8 @@ tests/                 Vitest
 | GET | `/api/benchmarks` | 可選的比較基準（`returnBasis`：`price` 價格報酬／`total_return` 總報酬） |
 | GET | `/api/cron/sync-prices` | 同步收盤價、匯率、比較基準並記每日淨值快照；只接受 `Authorization: Bearer <CRON_SECRET>` |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
-| GET | `/api/cron/sync-market?budget=` | 族群輪動：同步族群清單、抓上市櫃行情與法人、算強度與動能；只接受 `Authorization: Bearer <CRON_SECRET>` |
+| GET | `/api/cron/sync-market?budget=` | 族群輪動：同步族群清單、抓上市櫃行情與法人；只接受 `Authorization: Bearer <CRON_SECRET>` |
+| GET | `/api/cron/compute-market` | 族群輪動：算強度與動能；只接受 `Authorization: Bearer <CRON_SECRET>` |
 | GET | `/api/market/rotation?level=theme\|industry\|sector&date=` | 族群（產業、板塊）的強度、動能、漲跌、成交金額、法人金額與 10 日軌跡 |
 | GET | `/api/market/groups/:id?date=` | 族群成員與 60 日法人金額 |
 | GET | `/api/market/stocks?date=` | 個股篩選：續強、轉強 |

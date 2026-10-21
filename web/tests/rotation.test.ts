@@ -17,7 +17,9 @@ import { syncGroups } from "@/lib/market/groups-sync";
 import { syncMarket } from "@/lib/market/market-sync";
 import { chainIndex, dailyReturns, dataFlags, groupReturns, quadrant, ROTATION, rotationSeries } from "@/lib/market/rotation";
 import { computeRotation } from "@/lib/market/rotation-compute";
-import { createTestDb } from "./helpers/db";
+import { getGroupDetail, getRotation } from "@/lib/services/market";
+import { postTransaction } from "@/lib/services/transactions";
+import { createLedger, createTestDb, req } from "./helpers/db";
 
 // ---------------------------------------------------------------------------
 // 交易所回應（欄位與真實回應相同，資料是假的）
@@ -253,6 +255,28 @@ describe("同步全市場資料", () => {
   });
 });
 
+async function seedRotation() {
+  await applyAssetRecords(db, "twse-isin", [twAsset("AAAA", "上漲股"), twAsset("BBBB", "持平股"), twAsset("CCCC", "下跌股")]);
+  const days = weekdays("2026-05-01", 80);
+  await seedDays(days);
+  const ids = new Map(
+    ((await db.execute(sql`select id, symbol from stack.assets where symbol in ('AAAA','BBBB','CCCC')`)) as unknown as { rows: { id: string; symbol: string }[] }).rows.map((r) => [r.symbol, r.id]),
+  );
+  const price = (sym: string, i: number) => (sym === "AAAA" ? 100 * Math.pow(1.01, Math.max(0, i - 50)) : sym === "BBBB" ? 100 : 100 * Math.pow(0.99, Math.max(0, i - 50)));
+  const values = days.flatMap((d, i) =>
+    ["AAAA", "BBBB", "CCCC"].map((s) => `('${ids.get(s)}'::uuid, '${d}'::date, ${price(s, i).toFixed(4)}, 1000, ${Math.round(price(s, i) * 1000)}, ${s === "AAAA" ? 10 : -10}, 0, 0)`),
+  );
+  await db.execute(sql.raw(`insert into stack.market_daily (asset_id, trade_date, close, volume, turnover, foreign_net, trust_net, dealer_net) values ${values.join(",")}`));
+  await db.execute(sql.raw(`insert into stack.market_sync_log (trade_date, source, rows) select d, s, 1 from unnest(array[${days.map((d) => `'${d}'::date`).join(",")}]) d, unnest(array['twse_quotes','tpex_quotes']) s`));
+  await db.insert(marketGroups).values({ id: "theme-test", name: "測試族群", level: "theme" });
+  await db.insert(marketGroupMembers).values([
+    { groupId: "theme-test", assetId: ids.get("AAAA")! },
+    { groupId: "theme-test", assetId: ids.get("BBBB")! },
+  ]);
+
+  return { days, ids, price };
+}
+
 describe("族群與強度計算", () => {
   beforeEach(async () => {
     db = await createTestDb();
@@ -272,24 +296,7 @@ describe("族群與強度計算", () => {
   });
 
   it("跑贏的股票在領先象限、族群取成員平均；算過的日子不重算；暖機不足的日子不算", async () => {
-    await applyAssetRecords(db, "twse-isin", [twAsset("AAAA", "上漲股"), twAsset("BBBB", "持平股"), twAsset("CCCC", "下跌股")]);
-    const days = weekdays("2026-05-01", 80);
-    await seedDays(days);
-    const ids = new Map(
-      ((await db.execute(sql`select id, symbol from stack.assets where symbol in ('AAAA','BBBB','CCCC')`)) as unknown as { rows: { id: string; symbol: string }[] }).rows.map((r) => [r.symbol, r.id]),
-    );
-    const price = (sym: string, i: number) => (sym === "AAAA" ? 100 * Math.pow(1.01, Math.max(0, i - 50)) : sym === "BBBB" ? 100 : 100 * Math.pow(0.99, Math.max(0, i - 50)));
-    const values = days.flatMap((d, i) =>
-      ["AAAA", "BBBB", "CCCC"].map((s) => `('${ids.get(s)}'::uuid, '${d}'::date, ${price(s, i).toFixed(4)}, 1000, ${Math.round(price(s, i) * 1000)}, ${s === "AAAA" ? 10 : -10}, 0, 0)`),
-    );
-    await db.execute(sql.raw(`insert into stack.market_daily (asset_id, trade_date, close, volume, turnover, foreign_net, trust_net, dealer_net) values ${values.join(",")}`));
-    await db.execute(sql.raw(`insert into stack.market_sync_log (trade_date, source, rows) select d, s, 1 from unnest(array[${days.map((d) => `'${d}'::date`).join(",")}]) d, unnest(array['twse_quotes','tpex_quotes']) s`));
-    await db.insert(marketGroups).values({ id: "theme-test", name: "測試族群", level: "theme" });
-    await db.insert(marketGroupMembers).values([
-      { groupId: "theme-test", assetId: ids.get("AAAA")! },
-      { groupId: "theme-test", assetId: ids.get("BBBB")! },
-    ]);
-
+    const { days, price } = await seedRotation();
     const r = await computeRotation(db, { today: days.at(-1), maxDates: 100 });
     // 80 天裡，第 65 天起才有完整的暖機資料
     expect(r.computed).toBe(80 - (ROTATION.long + ROTATION.lag) + 1);
@@ -307,5 +314,23 @@ describe("族群與強度計算", () => {
     // 法人金額＝股數 × 收盤價
     expect(Number(row.foreign_net)).toBe(Math.round(10 * Number(price("AAAA", 79).toFixed(4)) - 10 * 100));
     expect(await computeRotation(db, { today: last, maxDates: 100 })).toMatchObject({ computed: 0, pending: 0 });
+  });
+
+  it("讀取：5 日報酬由每天的報酬連乘；含我持股的族群會標示", async () => {
+    const { days, ids } = await seedRotation();
+    await computeRotation(db, { today: days.at(-1), maxDates: 100 });
+    const L = await createLedger(db);
+    await postTransaction(db, L.userId, { clientRequestId: req(), accountId: L.accountId, type: "buy", tradeDate: days[70], asset: { market: "TW", symbol: "BBBB" }, quantity: "1", unitPrice: "100" }, { today: days.at(-1) });
+    const r = await getRotation(db, L.userId, { level: "theme" });
+    expect(r.date).toBe(days.at(-1));
+    expect(r.market).toMatchObject({ members: 3, upCount: 1 });
+    const node = r.nodes.find((n) => n.id === "theme-test")!;
+    expect(node).toMatchObject({ held: true, members: 2, upCount: 1, quadrant: "leading" });
+    // 成員 A 每天 +1%、B 持平：族群每天約 +0.5%，5 日約 (1.005)^5 − 1
+    expect(node.ret5!).toBeCloseTo(Math.pow(1.005, 5) - 1, 4);
+    expect(node.trail).toHaveLength(10);
+    const detail = await getGroupDetail(db, L.userId, "theme-test");
+    expect(detail.members.map((m) => [m.symbol, m.held])).toEqual(expect.arrayContaining([["AAAA", false], ["BBBB", true]]));
+    expect(ids.size).toBe(3);
   });
 });

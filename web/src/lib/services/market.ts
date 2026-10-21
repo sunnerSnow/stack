@@ -120,8 +120,8 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
       const series = byGroup.get(g.id) ?? [];
       const today = series[0];
       if (!today || today.tradeDate !== day) continue;
-      const level = (n: number) => (series[n] ? Number(series[n].indexLevel) : null);
-      const change = (n: number) => (level(0) !== null && level(n) !== null ? level(0)! / level(n)! - 1 : null);
+      // 期間報酬用每天的報酬連乘（不用指數值：分批計算時指數的起點不同，不能直接相除）
+      const change = (n: number) => (series.length > n ? series.slice(0, n).reduce((g, r) => g * (1 + (r.ret === null ? 0 : Number(r.ret))), 1) - 1 : null);
       if (g.id === "market") {
         market = { ret: num(today.ret), strength: num(today.strength), momentum: num(today.momentum), members: today.members, upCount: today.upCount };
         continue;
