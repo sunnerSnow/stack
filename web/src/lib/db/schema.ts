@@ -216,7 +216,51 @@ export const positionSnapshots = stack.table("position_snapshots", {
   createdAt: createdAt(),
 });
 
+/** 行情、匯率與每日淨值快照（20261023000000_prices_fx_valuations.sql） */
+export const priceHistory = stack.table("price_history", {
+  assetId: uuid("asset_id").notNull(),
+  priceDate: date("price_date", { mode: "string" }).notNull(),
+  closePrice: amount("close_price").notNull(),
+  currency: char("currency", { length: 3 }).notNull(),
+  source: text("source", { enum: ["twse", "tpex", "finmind_us"] }).notNull(),
+  isAdjusted: boolean("is_adjusted").notNull().default(false),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const fxRates = stack.table("fx_rates", {
+  baseCurrency: char("base_currency", { length: 3 }).notNull(),
+  quoteCurrency: char("quote_currency", { length: 3 }).notNull(),
+  rateDate: date("rate_date", { mode: "string" }).notNull(),
+  rate: numeric("rate", { precision: 28, scale: 12 }).notNull(),
+  source: text("source", { enum: ["bot_spot_mid"] }).notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const portfolioValuations = stack.table("portfolio_valuations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  portfolioId: uuid("portfolio_id").notNull(),
+  valuationDate: date("valuation_date", { mode: "string" }).notNull(),
+  baseCurrency: char("base_currency", { length: 3 }).notNull(),
+  securitiesValue: amount("securities_value"),
+  cashValue: amount("cash_value"),
+  totalValue: amount("total_value"),
+  costBasis: amount("cost_basis"),
+  realizedPnl: amount("realized_pnl"),
+  unrealizedPnl: amount("unrealized_pnl"),
+  dividendIncomeNet: amount("dividend_income_net"),
+  feesAndTaxes: amount("fees_and_taxes"),
+  fxEffectEstimate: amount("fx_effect_estimate"),
+  dataQuality: text("data_quality", { enum: ["complete", "partial", "stale"] }).notNull(),
+  details: jsonb("details").notNull().default({}),
+  calculationVersion: text("calculation_version").notNull(),
+  createdAt: createdAt(),
+});
+
 export const schema = {
+  priceHistory,
+  fxRates,
+  portfolioValuations,
   users,
   portfolios,
   accounts,

@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { ACCOUNT_TYPE_LABEL, formatDecimal, MARKET_LABEL } from "@/lib/format";
 import { getLatestSnapshots } from "@/lib/services/snapshots";
+import { getPortfolioValuation } from "@/lib/services/valuations";
 import { D } from "@/lib/money/decimal";
 import { type CurrencyAmount, getCashBalances, getHoldings, getLedgerSummary } from "@/lib/services/positions";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
@@ -46,14 +47,17 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
-  const [accounts, summary, cash, holdings, transactions, snapshots] = await Promise.all([
+  const [accounts, summary, cash, holdings, transactions, snapshots, valuation] = await Promise.all([
     listAccounts(db, user.id, id),
     getLedgerSummary(db, user.id, id),
     getCashBalances(db, user.id, id),
     getHoldings(db, user.id, id),
     listTransactions(db, user.id, { portfolioId: id, limit: 100 }),
     getLatestSnapshots(db, user.id, id),
+    getPortfolioValuation(db, user.id, id),
   ]);
+  const valued = new Map(valuation.holdings.map((h) => [`${h.accountId}:${h.assetId}`, h]));
+  const base = valuation.baseCurrency;
   // 剛記錄的那筆直接用 ID 查：補登很早的交易不一定在最近 100 筆裡
   const postedTx = typeof posted === "string" ? await getTransaction(db, user.id, posted).then((d) => d.transaction, () => undefined) : undefined;
   const recalculated = typeof recalc === "string" ? Number.parseInt(recalc, 10) : 0;
@@ -105,8 +109,51 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         </p>
       ) : null}
 
+      {/* 估值：換算成基準幣別；缺價格或匯率的部分不計入，並標示不完整 */}
+      <section className="panel">
+        <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
+          <div className="p-5">
+            <p className="kicker">總淨值（{base}）</p>
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-[26px] font-black">
+              <Amount value={valuation.totalValue} />
+              <QualityTag quality={valuation.quality} />
+            </p>
+          </div>
+          <div className="p-5">
+            <p className="kicker">證券市值</p>
+            <p className="mt-2 text-[19px] font-medium">
+              <Amount value={valuation.securitiesValue} currency={base} />
+            </p>
+          </div>
+          <div className="p-5">
+            <p className="kicker">現金</p>
+            <p className="mt-2 text-[19px] font-medium">
+              <Amount value={valuation.cashValue} currency={base} />
+            </p>
+          </div>
+          <div className="p-5">
+            <p className="kicker">未實現損益</p>
+            <p className="mt-2 text-[19px] font-medium">
+              <Pnl value={valuation.unrealizedPnl} currency={base} />
+            </p>
+            {valuation.costIncomplete ? <p className="mt-1 text-xs text-ink-3">只含有成本的持股</p> : null}
+          </div>
+        </div>
+        <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+          估值日 <span className="num">{valuation.asOf}</span>：每檔用當天或之前最近的收盤價（台股證交所／櫃買中心、美股 FinMind），價格日期見持倉表。
+          {valuation.fxUsed.map((r) => ` ${r.base}/${r.quote} ${r.rate}（${r.date} 臺銀即期中價）。`)}
+          {valuation.missingPrices.length > 0 ? ` 還沒有價格、未計入市值：${valuation.missingPrices.join("、")}（每天收盤後更新）。` : ""}
+          {valuation.stalePrices.length > 0 ? ` 價格超過 7 天沒更新：${valuation.stalePrices.join("、")}。` : ""}
+          {valuation.missingFx.length > 0 ? ` 缺少 ${valuation.missingFx.join("、")} 匯率，這些幣別的部分未換算計入。` : ""}
+          {valuation.cashIncomplete ? " 有快照帳戶沒填現金。" : ""}
+          {valuation.costIncomplete ? " 有持股沒有成本（成本未完整），未實現損益只算有成本的部分。" : ""}
+          報酬率（XIRR、TWR）之後的版本才會計算。
+        </p>
+      </section>
+
       {/* 帳本彙總：各幣別分開列，不做匯率換算 */}
       <section className="panel">
+        <p className="kicker px-5 pt-4">帳本（各幣別分開，未換算）</p>
         <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 lg:divide-x-2">
           <div className="p-5">
             <p className="kicker">現金</p>
@@ -139,15 +186,15 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
             </div>
           </div>
         </div>
-        <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
-          <span className="tag tag-warn mr-2">尚無行情</span>
-          還沒接上行情與匯率，所以這裡不顯示市值、未實現損益、總淨值與報酬率（XIRR、TWR），也不會用估計值代替。各幣別分開列，沒有換算。
-          {summary.cashIncomplete ? " 有快照帳戶沒填現金，現金只含已知的部分。" : ""}
-          {summary.costIncomplete ? " 有快照持股沒填成本，持倉成本只含已知的部分（成本未完整）。" : ""}
-        </p>
+        {summary.cashIncomplete || summary.costIncomplete ? (
+          <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+            {summary.cashIncomplete ? "有快照帳戶沒填現金，現金只含已知的部分。" : ""}
+            {summary.costIncomplete ? "有快照持股沒填成本，持倉成本只含已知的部分（成本未完整）。" : ""}
+          </p>
+        ) : null}
       </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+      <div className="grid grid-cols-1 gap-6">
         <section className="panel min-w-0">
           <div className="panel-head">
             <h2>持倉</h2>
@@ -163,59 +210,83 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     <th>資產</th>
                     <th>帳戶</th>
                     <th className="r">數量</th>
-                    <th className="r">平均成本</th>
+                    <th className="r">價格</th>
+                    <th className="r">市值</th>
                     <th className="r">持倉成本</th>
+                    <th className="r">未實現</th>
                     <th className="r">已實現</th>
-                    <th className="r">批次</th>
+                    <th className="r">來源</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {holdings.map((h) => (
-                    <tr key={`${h.accountId}:${h.assetId}`}>
-                      <td>
-                        <span className="font-bold num">{h.symbol}</span> <span className="text-ink-2">{h.name}</span>
-                        <span className="tag ml-2">{MARKET_LABEL[h.market] ?? h.market}</span>
-                      </td>
-                      <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
-                      <td className="r">
-                        <Amount value={h.quantity} maxFraction={4} />
-                      </td>
-                      <td className="r">
-                        <Amount value={h.averageCost} maxFraction={4} />
-                      </td>
-                      <td className="r">
-                        <Amount value={h.costBasis} currency={h.currency} />
-                      </td>
-                      <td className="r">
-                        <Pnl value={h.realizedPnl} />
-                      </td>
-                      <td className="r num">{h.openLots}</td>
-                    </tr>
-                  ))}
-                  {snapshotHoldings.map((h) => (
-                    <tr key={`${h.accountId}:${h.asset.id}`}>
-                      <td>
-                        <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
-                        <span className="tag ml-2">{MARKET_LABEL[h.asset.market] ?? h.asset.market}</span>
-                      </td>
-                      <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
-                      <td className="r">
-                        <Amount value={h.quantity} maxFraction={4} />
-                      </td>
-                      <td className="r">
-                        {h.unitCost === null ? <span className="tag tag-warn">成本未完整</span> : <Amount value={h.unitCost} maxFraction={4} />}
-                      </td>
-                      <td className="r">
-                        <Amount value={h.costBasis} currency={h.currency} />
-                      </td>
-                      <td className="r text-ink-3">—</td>
-                      <td className="r whitespace-nowrap">
-                        <span className="tag" title="快速淨值帳戶：取最新的庫存快照">
-                          快照 {h.asOfDate.slice(5)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {holdings.map((h) => {
+                    const v = valued.get(`${h.accountId}:${h.assetId}`);
+                    return (
+                      <tr key={`${h.accountId}:${h.assetId}`}>
+                        <td>
+                          <span className="font-bold num">{h.symbol}</span> <span className="text-ink-2">{h.name}</span>
+                          <span className="tag ml-2">{MARKET_LABEL[h.market] ?? h.market}</span>
+                        </td>
+                        <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
+                        <td className="r">
+                          <Amount value={h.quantity} maxFraction={4} />
+                        </td>
+                        <PriceCell price={v?.price ?? null} date={v?.priceDate ?? null} stale={v?.stale ?? false} />
+                        <td className="r">
+                          <Amount value={v?.marketValue ?? null} currency={h.currency} />
+                        </td>
+                        <td className="r">
+                          <Amount value={h.costBasis} currency={h.currency} />
+                          <span className="block text-[11px] text-ink-3">
+                            均價 <Amount value={h.averageCost} maxFraction={4} />
+                          </span>
+                        </td>
+                        <UnrealizedCell pnl={v?.unrealizedPnl ?? null} pct={v?.unrealizedPct ?? null} />
+                        <td className="r">
+                          <Pnl value={h.realizedPnl} />
+                        </td>
+                        <td className="r num whitespace-nowrap text-xs text-ink-2">{h.openLots} 批</td>
+                      </tr>
+                    );
+                  })}
+                  {snapshotHoldings.map((h) => {
+                    const v = valued.get(`${h.accountId}:${h.asset.id}`);
+                    return (
+                      <tr key={`${h.accountId}:${h.asset.id}`}>
+                        <td>
+                          <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
+                          <span className="tag ml-2">{MARKET_LABEL[h.asset.market] ?? h.asset.market}</span>
+                        </td>
+                        <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
+                        <td className="r">
+                          <Amount value={h.quantity} maxFraction={4} />
+                        </td>
+                        <PriceCell price={v?.price ?? null} date={v?.priceDate ?? null} stale={v?.stale ?? false} />
+                        <td className="r">
+                          <Amount value={v?.marketValue ?? null} currency={h.currency} />
+                        </td>
+                        <td className="r">
+                          {h.costBasis === null ? (
+                            <span className="tag tag-warn">成本未完整</span>
+                          ) : (
+                            <>
+                              <Amount value={h.costBasis} currency={h.currency} />
+                              <span className="block text-[11px] text-ink-3">
+                                均價 <Amount value={h.unitCost} maxFraction={4} />
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <UnrealizedCell pnl={v?.unrealizedPnl ?? null} pct={v?.unrealizedPct ?? null} />
+                        <td className="r text-ink-3">—</td>
+                        <td className="r whitespace-nowrap">
+                          <span className="tag" title="快速淨值帳戶：取最新的庫存快照">
+                            快照 {h.asOfDate.slice(5)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -230,13 +301,13 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
           {accounts.length === 0 ? (
             <p className="px-5 pt-5 text-sm text-ink-2">先建立一個券商或現金帳戶，才能記交易。</p>
           ) : (
-            <ul>
+            <ul className="grid sm:grid-cols-2 lg:grid-cols-3">
               {accounts.map((a) => {
                 const balances = cash.filter((c) => c.accountId === a.id);
                 if (a.trackingMode === "snapshot") {
                   const s = snapshotOf.get(a.id);
                   return (
-                    <li key={a.id} className="border-b border-line px-5 py-3.5">
+                    <li key={a.id} className="border-b border-line px-5 py-3.5 sm:border-r">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold">{a.name}</span>
                         <span className="tag tag-sea">快照 · {a.currency}</span>
@@ -272,7 +343,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                   );
                 }
                 return (
-                  <li key={a.id} className="border-b border-line px-5 py-3.5">
+                  <li key={a.id} className="border-b border-line px-5 py-3.5 sm:border-r">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold">{a.name}</span>
                       <span className="tag">
@@ -395,6 +466,40 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         )}
       </section>
     </div>
+  );
+}
+
+function QualityTag({ quality }: { quality: "complete" | "partial" | "stale" }) {
+  if (quality === "complete") return <span className="tag tag-sea text-[11px] font-normal">完整</span>;
+  return <span className="tag tag-warn text-[11px] font-normal">{quality === "stale" ? "價格過期" : "不完整"}</span>;
+}
+
+/** 價格與價格日期；還沒有價格顯示「尚無行情」 */
+function PriceCell({ price, date, stale }: { price: string | null; date: string | null; stale: boolean }) {
+  if (price === null) {
+    return (
+      <td className="r">
+        <span className="tag tag-warn">尚無行情</span>
+      </td>
+    );
+  }
+  return (
+    <td className="r whitespace-nowrap">
+      <Amount value={price} maxFraction={4} />
+      <span className={`block text-[11px] num ${stale ? "text-warn" : "text-ink-3"}`}>
+        {date}
+        {stale ? " 過期" : ""}
+      </span>
+    </td>
+  );
+}
+
+function UnrealizedCell({ pnl, pct }: { pnl: string | null; pct: string | null }) {
+  return (
+    <td className="r whitespace-nowrap">
+      <Pnl value={pnl} />
+      {pct !== null ? <span className="block text-[11px] text-ink-3 num">{formatDecimal(new D(pct).times(100).toFixed(), { maxFraction: 2, signed: true })}%</span> : null}
+    </td>
   );
 }
 

@@ -28,6 +28,7 @@ npm run dev          # http://localhost:3000
    2. `20261019000000_reversals.sql`（沖銷、更正與稽核紀錄）
    3. `20261021000000_cost_estimates.sql`（帳戶手續費設定、交易的估算紀錄與當沖標記）
    4. `20261022000000_snapshots_imports.sql`（庫存快照、匯入批次與每一列）
+   5. `20261023000000_prices_fx_valuations.sql`（收盤價、匯率、每日淨值快照）
 
    - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
@@ -41,13 +42,14 @@ npm run dev          # http://localhost:3000
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`（舊專案可用 `NEXT_PUBLIC_SUPABASE_ANON_KEY`）
    - `DATABASE_URL`：Supabase「Connect」裡的 **Transaction pooler**（port 6543）連線字串
-   - Vercel 另外要設 `CRON_SECRET`（至少 16 個隨機字元），每天同步資產主檔的排程會帶著它呼叫 `/api/cron/sync-assets`
+   - Vercel 另外要設 `CRON_SECRET`（至少 16 個隨機字元），每天同步資產主檔與行情的排程會帶著它呼叫 `/api/cron/sync-assets`、`/api/cron/sync-prices`
+   - 選填 `FINMIND_TOKEN`：FinMind 的免費金鑰（美股與匯率）；不設也能用，只是每小時的次數比較少
 4. Authentication → URL Configuration（`https://supabase.com/dashboard/project/<ref>/auth/url-configuration`）把 Site URL 設成網站網址，並把 `https://<網址>/auth/callback` 加進 Redirect URLs（註冊確認信會回到這裡）。
 5. Supabase 內建寄信每小時只能寄很少封、而且只寄給組織成員；開放給別人註冊前要設定自訂 SMTP。
 
 三個變數**只設一半會直接報錯**，正式環境（`NODE_ENV=production`）沒設也會報錯，不會默默改用本機資料庫。
 
-`vercel.json` 把函式固定在新加坡（`sin1`），跟 Supabase 專案（`ap-southeast-1`）同一區；換資料庫地區時要一起改，否則每次查詢都要跨區。同一個檔案也設定了每天 UTC 22 點（台北 6 點，Hobby 方案會在那一小時內的任意時間執行）同步資產主檔。要立刻同步，可以自己帶密鑰呼叫：
+`vercel.json` 把函式固定在新加坡（`sin1`），跟 Supabase 專案（`ap-southeast-1`）同一區；換資料庫地區時要一起改，否則每次查詢都要跨區。同一個檔案也設定了兩個每日排程（Hobby 方案會在指定的那一小時內任意時間執行）：UTC 22 點（台北 6 點）同步資產主檔、UTC 8:30（台北 16:30～17:30，台股收盤資料已公布）同步行情並記每日淨值快照。要立刻同步，可以自己帶密鑰呼叫（行情換成 `/api/cron/sync-prices`）：
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://<網址>/api/cron/sync-assets
@@ -108,6 +110,12 @@ tests/                 Vitest
   - 證交稅只有台股賣出，元以下捨去，規則表 `TW_TAX_RULES` 依交易日選用：股票與特別股 0.3%、ETF 與 TDR 0.1%（證交稅條例 §2、財政部函釋）、債券 ETF 至 2026-12-31 免徵（§2-1；代號 B 結尾，槓桿 L／反向 R 不適用）、股票現股當沖 0.15% 至 2027-12-31（§2-2，表單勾選「現股當沖」）。期限到了沒延長就自動回到一般稅率；修法延長時改規則表的日期。
   - 新建的台幣券商帳戶預設開啟估算（0.1425%、不打折、整股最低 20、零股最低 1）；美元與現金帳戶預設不估算。改設定只影響之後的交易。
   - 美股的 SEC／交易所規費沒有估算，請記在「其他費用」。
+- **行情、匯率與估值**（`src/lib/market/`、`src/lib/valuation/`、`src/lib/services/valuations.ts`）：
+  - 收盤價：台股上市取證交所 OpenAPI（STOCK_DAY_ALL）、上櫃取櫃買中心 OpenAPI；美股取 FinMind（代號的 `.` 換成 `-`）。只抓**現在有人持有**的共用資產，資料庫才不會每年長幾十 MB；已經有的那天價格不覆寫。
+  - 匯率：FinMind 的臺灣銀行牌告，取即期買入與賣出的中價；方向固定為 `1 base = rate quote`（USD/TWD = 32.6）。臺銀官網有機器人驗證，不能直接抓。
+  - 估值用估值日當天或之前最近的收盤價並標示價格日期（台股休市、美股有交易時日期各自標示），超過 7 天標「過期」。缺價格的持股不計入市值、缺匯率的幣別不換算（絕不用 1），總淨值標「不完整」並列出缺什麼；沒有成本的持股不算未實現損益。
+  - 快照帳戶一樣估值：有價格就有市值，即使成本未完整。
+  - 每天收盤後替每個投資組合記一筆 `portfolio_valuations`（只能新增；同一天同一個 `calculation_version` 只記一次，不無聲覆寫）。已實現、股息與費用以估值日匯率換算成基準幣別。
 - **正負號只由規則決定。** 使用者輸入的金額都是正數，現金增減由 `src/lib/ledger/rules.ts` 決定；買賣的成交金額一律由「數量 × 單價」計算。
 - **防重複送出。** 每次打開表單產生一個 `clientRequestId`（每位使用者唯一）。同一個 ID 再送一次會回傳原本那筆（API 回 200、`meta.duplicate: true`）；同一個 ID 拿來送不同內容會回 409。
 - **金額以字串傳輸。** API 的金額、數量都是十進位字串；送 JSON number 會被拒絕（避免 `0.1 + 0.2` 這類精度問題）。
@@ -146,6 +154,9 @@ tests/                 Vitest
 | POST | `/api/positions/snapshots` | 建立庫存快照（快照模式帳戶；可帶 `importBatchId` 確認匯入） |
 | GET | `/api/accounts/:id/snapshots` | 帳戶最新與上一份快照 |
 | GET | `/api/assets?q=&market=TW\|US&limit=` | 搜尋資產主檔（`q` 必填：代號開頭或名稱包含） |
+| GET | `/api/portfolios/:id/valuation?asOf=` | 估值（基準幣別、各持股價格日期、使用的匯率、缺漏清單） |
+| GET | `/api/portfolios/:id/history` | 每日淨值快照 |
+| GET | `/api/cron/sync-prices` | 同步收盤價與匯率並記每日淨值快照；只接受 `Authorization: Bearer <CRON_SECRET>` |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
 
 新增交易時 `fee`、`tax` 省略代表「依帳戶設定估算」，送 `"0"` 代表實際就是 0；台股賣出可帶 `dayTrade: true`（現股當沖）。
@@ -170,8 +181,8 @@ tests/                 Vitest
 
 ## Phase 1 沒有做的事
 
-- 行情、匯率、市值、未實現損益、總淨值、XIRR、TWR、基準比較（Phase 3、4）。畫面上明確標示「尚無行情」，不顯示估計值。
-- 快照帳戶轉成逐筆記帳（轉換基準日、期初批次）、券商成交明細 CSV 匯入、用集保餘額核對逐筆帳本的持股、每日淨值快照（`portfolio_valuations`，要等 Phase 4 的行情）。
+- XIRR、TWR、基準比較（Phase 3）；淨值走勢圖與配置圖（Phase 4 的圖表）；股票分割等公司行動（價格目前用原始收盤價，數量也沒有調整）；歷史價格回補（只從開始同步的那天起有價格）。
+- 快照帳戶轉成逐筆記帳（轉換基準日、期初批次）、券商成交明細 CSV 匯入、用集保餘額核對逐筆帳本的持股。
 - 帳戶間轉帳、換匯、股票分割、帳戶與組合的封存／刪除、使用者資料匯出與刪除。
 - 補登較早日期的買賣造成的重算還沒有寫稽核紀錄（只在畫面提示重算了幾筆）；沖銷與更正的重算有。
 - 沖銷交易與更正後的新交易在同一個資料庫交易內寫入，`created_at` 相同，列表中兩者的先後順序不固定（不影響計算：沖銷交易不參與 FIFO）。
