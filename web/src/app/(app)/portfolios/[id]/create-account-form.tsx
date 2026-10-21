@@ -40,6 +40,13 @@ export function CreateAccountForm({ portfolioId }: { portfolioId: string }) {
           </select>
         </label>
       </div>
+      <label className="field">
+        <span>追蹤方式</span>
+        <select className="input" name="trackingMode" defaultValue="transaction">
+          <option value="transaction">逐筆交易（記每一筆買賣，算已實現損益）</option>
+          <option value="snapshot">快速淨值（只更新庫存與現金）</option>
+        </select>
+      </label>
       <button className="btn btn-ink" type="submit" disabled={pending}>
         {pending ? "建立中…" : "建立帳戶"}
       </button>

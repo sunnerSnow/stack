@@ -1,9 +1,10 @@
 import { type AnyColumn, and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db/local";
 import { accounts, assets, cashLedger, lotDisposals, positionLots, transactions } from "@/lib/db/schema";
-import { withUser } from "@/lib/db/with-user";
+import { type Tx, withUser } from "@/lib/db/with-user";
 import { D, toPlain } from "@/lib/money/decimal";
 import { requirePortfolio } from "@/lib/services/portfolios";
+import { latestSnapshotsInTx } from "@/lib/services/snapshots";
 import { isEffectiveTransaction } from "@/lib/services/transactions";
 
 export interface HoldingDto {
@@ -44,6 +45,12 @@ export interface PortfolioLedgerSummary {
   /** 外部入金 − 出金 */
   netContributions: CurrencyAmount[];
   transactionCount: number;
+  /** 快照模式帳戶（已有快照的）數量；它們的現金與成本來自最新快照 */
+  snapshotAccounts: number;
+  /** 有快照帳戶沒填現金 */
+  cashIncomplete: boolean;
+  /** 有快照持股沒填成本：持倉成本只含已知的部分 */
+  costIncomplete: boolean;
 }
 
 const sumText = (column: AnyColumn) => sql<string>`coalesce(sum(${column}), 0)::text`;
@@ -164,6 +171,25 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
       .innerJoin(accounts, eq(accounts.id, transactions.accountId))
       .where(and(eq(transactions.userId, userId), inPortfolio, isEffectiveTransaction()));
 
+    // 快照模式帳戶：現金與成本取最新快照（沒填的不當成 0，而是標示不完整）
+    const snapshots = await latestSnapshotsInTx(tx, userId, portfolioId);
+    const add = (rows: { currency: string; amount: string }[], currency: string, amount: string) => {
+      const row = rows.find((r) => r.currency === currency);
+      if (row) row.amount = new D(row.amount).plus(amount).toFixed();
+      else rows.push({ currency, amount });
+    };
+    let cashIncomplete = false;
+    let costIncomplete = false;
+    for (const s of snapshots) {
+      const currency = s.positions[0]?.currency ?? (await accountCurrency(tx, userId, s.accountId));
+      if (s.cashBalance === null) cashIncomplete = true;
+      else add(cash, currency, s.cashBalance);
+      for (const p of s.positions) {
+        if (p.costBasis === null) costIncomplete = true;
+        else add(costBasis, p.currency, p.costBasis);
+      }
+    }
+
     return {
       cash: byCurrency(cash),
       costBasis: byCurrency(costBasis),
@@ -171,6 +197,14 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
       incomeNet: byCurrency(income),
       netContributions: byCurrency(contributions),
       transactionCount: n,
+      snapshotAccounts: snapshots.length,
+      cashIncomplete,
+      costIncomplete,
     };
   });
+}
+
+async function accountCurrency(tx: Tx, userId: string, accountId: string): Promise<string> {
+  const [row] = await tx.select({ currency: accounts.currency }).from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.userId, userId)));
+  return row.currency;
 }

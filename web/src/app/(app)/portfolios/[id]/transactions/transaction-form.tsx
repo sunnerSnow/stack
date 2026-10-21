@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
+import { MARKETS, marketFor, useAssetSearch } from "../use-asset-search";
 import { correctTransactionAction, createTransactionAction, type FormState } from "@/app/actions";
 import { formatDecimal } from "@/lib/format";
 import { type CostEstimate, describeFee, describeTax, estimateCosts, type FeeSettings, type TaxAsset } from "@/lib/ledger/costs";
@@ -42,47 +43,6 @@ const TYPE_GROUPS: { label: string; types: Phase1Type[] }[] = [
 ];
 
 const DECIMAL_RE = /^\d{1,18}(\.\d{1,10})?$/;
-
-/** Phase 1 每個帳戶只用一種幣別：台股記在 TWD 帳戶、美股記在 USD 帳戶 */
-const MARKETS = [
-  { value: "TW", label: "台股", currency: "TWD" },
-  { value: "US", label: "美股", currency: "USD" },
-] as const;
-type Market = (typeof MARKETS)[number]["value"];
-const marketFor = (currency: string | undefined): Market | null => MARKETS.find((m) => m.currency === currency)?.value ?? null;
-
-interface AssetHit {
-  symbol: string;
-  name: string;
-  assetType: string;
-  kind: string | null;
-  bondEtf: boolean;
-  active: boolean;
-  shared: boolean;
-}
-
-/** 輸入代號或名稱時查資產主檔（停 200ms 才查，新的輸入會取消上一個請求） */
-function useAssetSearch(market: Market | null, query: string) {
-  const term = query.trim();
-  const key = `${market}:${term.toUpperCase()}`;
-  const [result, setResult] = useState<{ key: string; hits: AssetHit[] } | null>(null);
-  useEffect(() => {
-    if (!market || !term) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      fetch(`/api/assets?market=${market}&limit=12&q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then((res) => (res.ok ? res.json() : { data: [] }))
-        .then((body: { data?: AssetHit[] }) => setResult({ key, hits: body.data ?? [] }))
-        .catch(() => {});
-    }, 200);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [market, term, key]);
-  const fresh = result?.key === key ? result.hits : null;
-  return { hits: fresh ?? [], loading: Boolean(market && term) && fresh === null };
-}
 
 export function TransactionForm({ portfolioId, today, accounts, initial = {}, correctionOf }: Props) {
   const submit = correctionOf ? correctTransactionAction.bind(null, portfolioId, correctionOf) : createTransactionAction.bind(null, portfolioId);

@@ -5,7 +5,8 @@ import { Amount, Pnl } from "@/components/money";
 import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
-import { ACCOUNT_TYPE_LABEL, MARKET_LABEL } from "@/lib/format";
+import { ACCOUNT_TYPE_LABEL, formatDecimal, MARKET_LABEL } from "@/lib/format";
+import { getLatestSnapshots } from "@/lib/services/snapshots";
 import { D } from "@/lib/money/decimal";
 import { type CurrencyAmount, getCashBalances, getHoldings, getLedgerSummary } from "@/lib/services/positions";
 import { getPortfolio, listAccounts } from "@/lib/services/portfolios";
@@ -41,20 +42,25 @@ function CurrencyLines({ items, pnl = false }: { items: CurrencyAmount[]; pnl?: 
 export default async function PortfolioPage({ params, searchParams }: PageProps<"/portfolios/[id]">) {
   const user = await requireUser();
   const { id } = await params;
-  const { posted, duplicate, recalc, corrected } = await searchParams;
+  const { posted, duplicate, recalc, corrected, snapshot: savedSnapshot } = await searchParams;
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
-  const [accounts, summary, cash, holdings, transactions] = await Promise.all([
+  const [accounts, summary, cash, holdings, transactions, snapshots] = await Promise.all([
     listAccounts(db, user.id, id),
     getLedgerSummary(db, user.id, id),
     getCashBalances(db, user.id, id),
     getHoldings(db, user.id, id),
     listTransactions(db, user.id, { portfolioId: id, limit: 100 }),
+    getLatestSnapshots(db, user.id, id),
   ]);
   // 剛記錄的那筆直接用 ID 查：補登很早的交易不一定在最近 100 筆裡
   const postedTx = typeof posted === "string" ? await getTransaction(db, user.id, posted).then((d) => d.transaction, () => undefined) : undefined;
   const recalculated = typeof recalc === "string" ? Number.parseInt(recalc, 10) : 0;
+  const tradingAccounts = accounts.filter((a) => a.trackingMode === "transaction");
+  const snapshotOf = new Map(snapshots.map((s) => [s.accountId, s]));
+  const justSaved = typeof savedSnapshot === "string" ? snapshots.find((s) => s.id === savedSnapshot) : undefined;
+  const snapshotHoldings = snapshots.flatMap((s) => s.positions.map((p) => ({ ...p, accountId: s.accountId, accountName: s.accountName, asOfDate: s.asOfDate })));
 
   return (
     <div className="grid grid-cols-1 gap-8">
@@ -67,15 +73,28 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
           </p>
           <h1 className="mt-2 text-[28px] font-black">{portfolio.name}</h1>
           <p className="mt-1 text-sm text-ink-2">
-            基準幣別 <span className="num">{portfolio.baseCurrency}</span> · 逐筆交易 · {accounts.length} 個帳戶 · {summary.transactionCount} 筆交易
+            基準幣別 <span className="num">{portfolio.baseCurrency}</span> · {accounts.length} 個帳戶 · {summary.transactionCount} 筆交易
+            {summary.snapshotAccounts > 0 ? ` · ${summary.snapshotAccounts} 個帳戶用庫存快照` : ""}
           </p>
         </div>
-        {accounts.length > 0 ? (
-          <Link href={`/portfolios/${id}/transactions/new`} className="btn btn-sun">
-            ＋ 新增交易
+        <div className="flex flex-wrap gap-3">
+          <Link href={`/portfolios/${id}/imports/tdcc`} className="btn">
+            匯入集保 e 存摺
           </Link>
-        ) : null}
+          {tradingAccounts.length > 0 ? (
+            <Link href={`/portfolios/${id}/transactions/new`} className="btn btn-sun">
+              ＋ 新增交易
+            </Link>
+          ) : null}
+        </div>
       </div>
+
+      {justSaved ? (
+        <p className="success">
+          已建立「{justSaved.accountName}」{justSaved.asOfDate} 的庫存快照：{justSaved.positions.length} 檔
+          {justSaved.cashBalance !== null ? `、現金 ${formatDecimal(justSaved.cashBalance)}` : "（沒填現金）"}。之前的快照都保留著。
+        </p>
+      ) : null}
 
       {postedTx ? (
         <p className="success">
@@ -123,6 +142,8 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
           <span className="tag tag-warn mr-2">尚無行情</span>
           還沒接上行情與匯率，所以這裡不顯示市值、未實現損益、總淨值與報酬率（XIRR、TWR），也不會用估計值代替。各幣別分開列，沒有換算。
+          {summary.cashIncomplete ? " 有快照帳戶沒填現金，現金只含已知的部分。" : ""}
+          {summary.costIncomplete ? " 有快照持股沒填成本，持倉成本只含已知的部分（成本未完整）。" : ""}
         </p>
       </section>
 
@@ -130,10 +151,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         <section className="panel min-w-0">
           <div className="panel-head">
             <h2>持倉</h2>
-            <span className="text-xs text-ink-2">FIFO 批次彙總</span>
+            <span className="text-xs text-ink-2">逐筆帳戶依 FIFO 批次；快照帳戶取最新快照</span>
           </div>
-          {holdings.length === 0 ? (
-            <p className="p-6 text-sm text-ink-2">目前沒有持倉。記一筆「買進」後，這裡會顯示數量與成本。</p>
+          {holdings.length === 0 && snapshotHoldings.length === 0 ? (
+            <p className="p-6 text-sm text-ink-2">目前沒有持倉。記一筆「買進」，或匯入集保 e 存摺建立庫存快照後，這裡會顯示數量與成本。</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="table">
@@ -171,6 +192,30 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                       <td className="r num">{h.openLots}</td>
                     </tr>
                   ))}
+                  {snapshotHoldings.map((h) => (
+                    <tr key={`${h.accountId}:${h.asset.id}`}>
+                      <td>
+                        <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
+                        <span className="tag ml-2">{MARKET_LABEL[h.asset.market] ?? h.asset.market}</span>
+                      </td>
+                      <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
+                      <td className="r">
+                        <Amount value={h.quantity} maxFraction={4} />
+                      </td>
+                      <td className="r">
+                        {h.unitCost === null ? <span className="tag tag-warn">成本未完整</span> : <Amount value={h.unitCost} maxFraction={4} />}
+                      </td>
+                      <td className="r">
+                        <Amount value={h.costBasis} currency={h.currency} />
+                      </td>
+                      <td className="r text-ink-3">—</td>
+                      <td className="r whitespace-nowrap">
+                        <span className="tag" title="快速淨值帳戶：取最新的庫存快照">
+                          快照 {h.asOfDate.slice(5)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -188,6 +233,44 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
             <ul>
               {accounts.map((a) => {
                 const balances = cash.filter((c) => c.accountId === a.id);
+                if (a.trackingMode === "snapshot") {
+                  const s = snapshotOf.get(a.id);
+                  return (
+                    <li key={a.id} className="border-b border-line px-5 py-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold">{a.name}</span>
+                        <span className="tag tag-sea">快照 · {a.currency}</span>
+                      </div>
+                      {a.brokerName ? <p className="text-xs text-ink-3">{a.brokerName}</p> : null}
+                      <div className="mt-1.5 grid gap-0.5 text-sm">
+                        {s ? (
+                          <>
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-ink-2">{s.asOfDate} 快照</span>
+                              <span className="text-xs">{s.positions.length} 檔</span>
+                            </span>
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-ink-2">現金</span>
+                              {s.cashBalance === null ? <span className="text-xs text-ink-3">未提供</span> : <Amount value={s.cashBalance} currency={a.currency} />}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs text-ink-3">還沒有快照</span>
+                        )}
+                      </div>
+                      <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs font-bold">
+                        <Link href={`/portfolios/${id}/accounts/${a.id}/snapshot`} className="hover:underline">
+                          更新庫存
+                        </Link>
+                        {a.currency === "TWD" ? (
+                          <Link href={`/portfolios/${id}/imports/tdcc?account=${a.id}`} className="hover:underline">
+                            匯入集保 e 存摺
+                          </Link>
+                        ) : null}
+                      </p>
+                    </li>
+                  );
+                }
                 return (
                   <li key={a.id} className="border-b border-line px-5 py-3.5">
                     <div className="flex items-center justify-between gap-2">

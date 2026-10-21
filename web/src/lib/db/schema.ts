@@ -156,4 +156,78 @@ export const auditLog = stack.table("audit_log", {
   createdAt: createdAt(),
 });
 
-export const schema = { users, portfolios, accounts, assets, transactions, cashLedger, positionLots, lotDisposals, auditLog };
+/** 匯入批次與每一列（20261022000000_snapshots_imports.sql） */
+export const importBatches = stack.table("import_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  accountId: uuid("account_id").notNull(),
+  brokerFormat: text("broker_format", { enum: ["tdcc_passbook_pdf"] }).notNull(),
+  fileName: text("file_name"),
+  fileHash: text("file_hash").notNull(),
+  status: text("status", { enum: ["pending", "confirmed", "cancelled"] }).notNull().default("pending"),
+  rowCount: integer("row_count").notNull().default(0),
+  validCount: integer("valid_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: createdAt(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: "string" }),
+});
+
+export const importRows = stack.table("import_rows", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  batchId: uuid("batch_id").notNull(),
+  rowNumber: integer("row_number").notNull(),
+  rawData: jsonb("raw_data").notNull(),
+  parsedData: jsonb("parsed_data"),
+  validationErrors: jsonb("validation_errors").notNull().default([]),
+  dedupeKey: text("dedupe_key"),
+  status: text("status", { enum: ["valid", "error", "duplicate", "skipped", "imported"] }).notNull(),
+  transactionId: uuid("transaction_id"),
+  createdAt: createdAt(),
+});
+
+/** 庫存快照（只能新增）：快照模式帳戶在某天的持倉與現金 */
+export const accountSnapshots = stack.table("account_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  accountId: uuid("account_id").notNull(),
+  asOfDate: date("as_of_date", { mode: "string" }).notNull(),
+  cashBalance: amount("cash_balance"),
+  source: text("source", { enum: ["manual", "tdcc_pdf"] }).notNull().default("manual"),
+  importBatchId: uuid("import_batch_id"),
+  notes: text("notes"),
+  clientRequestId: uuid("client_request_id"),
+  createdAt: createdAt(),
+});
+
+export const positionSnapshots = stack.table("position_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  snapshotId: uuid("snapshot_id").notNull(),
+  accountId: uuid("account_id").notNull(),
+  assetId: uuid("asset_id").notNull(),
+  quantity: amount("quantity").notNull(),
+  unitCost: amount("unit_cost"),
+  marketPrice: amount("market_price"),
+  marketValue: amount("market_value"),
+  currency: char("currency", { length: 3 }).notNull(),
+  notes: text("notes"),
+  createdAt: createdAt(),
+});
+
+export const schema = {
+  users,
+  portfolios,
+  accounts,
+  assets,
+  transactions,
+  cashLedger,
+  positionLots,
+  lotDisposals,
+  auditLog,
+  importBatches,
+  importRows,
+  accountSnapshots,
+  positionSnapshots,
+};

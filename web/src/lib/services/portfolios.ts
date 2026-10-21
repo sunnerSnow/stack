@@ -1,7 +1,7 @@
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/lib/db/local";
 import { isUniqueViolation } from "@/lib/db/pg-errors";
-import { accounts, portfolios, users } from "@/lib/db/schema";
+import { accounts, accountSnapshots, portfolios, transactions, users } from "@/lib/db/schema";
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { AppError, issuesFromZod, notFound, validationFailed } from "@/lib/errors";
 import type { FeeSettings } from "@/lib/ledger/costs";
@@ -141,7 +141,7 @@ export async function createAccount(db: Db, userId: string, portfolioId: string,
   const parsed = accountInputSchema.safeParse(raw);
   if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
   const rawFees = (raw as { fees?: unknown } | null)?.fees;
-  const fees = rawFees === undefined ? defaultFeeSettings(parsed.data) : normalizeFeeSettings(rawFees);
+  const fees = rawFees === undefined || parsed.data.trackingMode === "snapshot" ? defaultFeeSettings(parsed.data) : normalizeFeeSettings(rawFees);
   return withUser(db, userId, async (tx) => {
     await requirePortfolio(tx, userId, portfolioId);
     const [row] = await tx
@@ -153,10 +153,36 @@ export async function createAccount(db: Db, userId: string, portfolioId: string,
         brokerName: parsed.data.brokerName ?? null,
         accountType: parsed.data.accountType,
         currency: parsed.data.currency,
-        trackingMode: "transaction",
+        trackingMode: parsed.data.trackingMode ?? "transaction",
         ...fees,
       })
       .returning();
+    return toAccountDto(row);
+  });
+}
+
+/**
+ * 切換帳戶的追蹤方式。只有還沒有任何交易與快照的帳戶可以切換：
+ * 已有資料的帳戶要轉換，需要設定轉換基準日（之後的功能），不能直接改，否則持倉會被重複計算或消失。
+ */
+export async function setAccountTrackingMode(db: Db, userId: string, accountId: string, mode: unknown): Promise<AccountDto> {
+  if (!isUuid(accountId)) throw notFound("帳戶");
+  if (mode !== "transaction" && mode !== "snapshot") throw validationFailed([{ field: "trackingMode", message: "請選擇追蹤方式" }]);
+  return withUser(db, userId, async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), eq(accounts.userId, userId), isNull(accounts.archivedAt)))
+      .for("update");
+    if (!account) throw notFound("帳戶");
+    if (account.trackingMode === mode) return toAccountDto(account);
+    const [{ tx: txCount }] = await tx.select({ tx: count() }).from(transactions).where(and(eq(transactions.accountId, accountId), eq(transactions.userId, userId)));
+    const [{ s: snapshotCount }] = await tx
+      .select({ s: count() })
+      .from(accountSnapshots)
+      .where(and(eq(accountSnapshots.accountId, accountId), eq(accountSnapshots.userId, userId)));
+    if (txCount + snapshotCount > 0) throw new AppError("account_not_empty", "這個帳戶已經有交易或快照，不能直接切換追蹤方式", 409);
+    const [row] = await tx.update(accounts).set({ trackingMode: mode }).where(and(eq(accounts.id, accountId), eq(accounts.userId, userId))).returning();
     return toAccountDto(row);
   });
 }

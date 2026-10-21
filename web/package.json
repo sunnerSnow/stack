@@ -17,6 +17,7 @@
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.2",
+    "pdfjs-dist": "4.10.38",
     "postgres": "^3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",

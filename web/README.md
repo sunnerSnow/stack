@@ -2,7 +2,7 @@
 
 STACK 是把市場分析、個人資產與 AI 研究放在一起的投資平台。產品規格在上一層的 `spec.md`，設計稿在 `../design/`。
 
-目前完成的是規格第 16 節的 **Phase 1：基礎帳本**：投資組合、帳戶、資產、手動交易、現金帳本、FIFO 持倉批次與賣出分配，以及對應的 API、基本畫面與測試。另外補上了交易的**沖銷與更正**（含稽核紀錄）。
+目前完成的是規格第 16 節的 **Phase 1：基礎帳本**：投資組合、帳戶、資產、手動交易、現金帳本、FIFO 持倉批次與賣出分配，以及對應的 API、基本畫面與測試。另外補上了交易的**沖銷與更正**（含稽核紀錄）、手續費與證交稅估算、每日同步的台美股資產主檔，以及 **Phase 2 的庫存快照（快速淨值）與集保 e 存摺匯入**。
 
 技術：Next.js 16.4（App Router）＋ TypeScript ＋ Tailwind 4 ＋ Drizzle ORM ＋ PostgreSQL（正式環境用 Supabase，本機與測試用 PGlite）＋ Vitest。
 
@@ -27,6 +27,7 @@ npm run dev          # http://localhost:3000
    1. `20261016000000_phase1_ledger.sql`
    2. `20261019000000_reversals.sql`（沖銷、更正與稽核紀錄）
    3. `20261021000000_cost_estimates.sql`（帳戶手續費設定、交易的估算紀錄與當沖標記）
+   4. `20261022000000_snapshots_imports.sql`（庫存快照、匯入批次與每一列）
 
    - 重跑前面某一份之後，要把後面的也依序重跑：第一份會先收回 `stack` 裡所有表的權限，再只補回它自己建的表。
    - **不要**執行 `supabase/local/auth_stub.sql`，那是給本機 PGlite 模擬 Supabase 用的。
@@ -72,6 +73,7 @@ supabase/local/        本機 PGlite 用的 auth 模擬（auth.users、auth.uid(
 src/lib/money/         十進位運算（decimal.js）；不經過 JavaScript number
 src/lib/ledger/        交易類型規則、FIFO 引擎（純函式）、輸入驗證
 src/lib/assets/        資產主檔的資料來源解析（純函式）與每日同步
+src/lib/imports/       集保 e 存摺 PDF 解析（純函式）與瀏覽器端的 pdf.js 讀取
 src/lib/services/      投資組合／帳戶／資產／交易／持倉服務（所有財務邏輯都在這裡，不在 React 元件裡）
 src/lib/db/            Drizzle schema、連線、withUser（以使用者身分執行資料庫交易）
 src/lib/auth/          Supabase session、本機示範使用者
@@ -139,6 +141,10 @@ tests/                 Vitest
 | PATCH | `/api/accounts/:id/fees` | 帳戶手續費設定 `{ enabled, ratePercent, discount（折）, min, minOddLot, max, rounding }` |
 | PATCH | `/api/transactions/:id` | 更正交易：沖銷原交易並依 body 新增一筆（格式同新增交易，另可帶 `reason`）；`data` 是新交易 |
 | POST | `/api/transactions/:id/reversal` | 沖銷交易，body `{ clientRequestId, reason? }`；`data` 是沖銷交易 |
+| POST | `/api/imports` | 建立匯入批次（集保 e 存摺：瀏覽器解析好的異動明細） |
+| GET | `/api/imports/:id` | 匯入批次與伺服器推算的持股 |
+| POST | `/api/positions/snapshots` | 建立庫存快照（快照模式帳戶；可帶 `importBatchId` 確認匯入） |
+| GET | `/api/accounts/:id/snapshots` | 帳戶最新與上一份快照 |
 | GET | `/api/assets?q=&market=TW\|US&limit=` | 搜尋資產主檔（`q` 必填：代號開頭或名稱包含） |
 | GET | `/api/cron/sync-assets` | 同步共用資產主檔；只接受 `Authorization: Bearer <CRON_SECRET>` |
 
@@ -146,10 +152,26 @@ tests/                 Vitest
 
 未登入回 401；別人的資源一律回 404（不透露是否存在）。沖銷與更正也用 `clientRequestId` 防重複送出；已經沖銷過的交易回 409 `already_reversed`，沖銷交易本身回 409 `not_reversible`，更正內容跟原交易一樣回 400 `no_change`。
 
+### 庫存快照（快速淨值，Phase 2）
+
+- 帳戶建立時選「快速淨值」：不記逐筆交易（新增交易會被拒絕），只記「某天持有多少、平均成本（可不填）、價格（可不填）、現金（可不填）」。
+- 每次更新都是一份新的 `account_snapshots`＋`position_snapshots`（資料庫只開 insert，另有 trigger 擋改寫）；快照列出的就是當天持有的全部，沒列出的就是 0。「最新」依基準日、再依建立時間。
+- 沒填的成本、價格、現金一律是 null，畫面標「成本未完整」「未提供」，彙總只加總已知的部分並註明不完整，不當成 0。
+- 已有交易或快照的帳戶不能直接切換追蹤方式（之後要做轉換基準日）。
+
+### 集保 e 存摺匯入
+
+- e 存摺匯出的「證券存摺登摺資料」是有密碼的 PDF。**在瀏覽器裡用 pdf.js 打開**（`isEvalSupported: false`），密碼與 PDF 不會送到伺服器；解析器只挑出檔頭（券商、查詢期間、產製時間）與異動列，不讀戶名、帳號、身分證字號。
+- 文字先做 NFKC：PDF 字型常把「月」「日」「至」對應成康熙部首、數字與冒號用全形。數字欄靠右對齊，用欄名右緣之間的中點切分提出／存入／餘額；浮水印（「臺灣集中保管結算所…」）會被濾掉。
+- e 存摺**只有股數**，沒有成交價、手續費與稅，所以用來建立庫存快照而不是交易。伺服器會重新推算持股（不信任瀏覽器的結果）：期初由第一筆有餘額的列反推，並逐列檢查「前一列餘額 − 提出 ＋ 存入 ＝ 這一列餘額」。只有當沖（買賣相抵）的代號只提示；最後一筆是借貸轉帳提出的標示「可能出借中」。
+- 異動明細只含查詢期間內有變動的股票：兩年內沒動過的持股不會出現。確認庫存時會沿用上一份快照裡集保沒提到的股票，賣光的另外列出；也可以手動補。
+- 每次匯入存一筆 `import_batches`（原始檔 SHA-256、檔頭、推算結果）與每一列 `import_rows`（之後對帳用）。同一個檔案確認過一次就不能再匯（唯一索引）；批次在建立快照時才標成已確認。
+- e 存摺上的日期是成交日（使用者確認過）。
+
 ## Phase 1 沒有做的事
 
 - 行情、匯率、市值、未實現損益、總淨值、XIRR、TWR、基準比較（Phase 3、4）。畫面上明確標示「尚無行情」，不顯示估計值。
-- 快速淨值（庫存快照）模式、CSV 匯入（Phase 2）。
+- 快照帳戶轉成逐筆記帳（轉換基準日、期初批次）、券商成交明細 CSV 匯入、用集保餘額核對逐筆帳本的持股、每日淨值快照（`portfolio_valuations`，要等 Phase 4 的行情）。
 - 帳戶間轉帳、換匯、股票分割、帳戶與組合的封存／刪除、使用者資料匯出與刪除。
 - 補登較早日期的買賣造成的重算還沒有寫稽核紀錄（只在畫面提示重算了幾筆）；沖銷與更正的重算有。
 - 沖銷交易與更正後的新交易在同一個資料庫交易內寫入，`created_at` 相同，列表中兩者的先後順序不固定（不影響計算：沖銷交易不參與 FIFO）。

@@ -197,6 +197,8 @@ export const accountInputSchema = z.object({
   brokerName: optional(z.string().trim().max(80, "券商名稱最多 80 字")),
   accountType: z.enum(["brokerage", "cash", "other"], "請選擇帳戶類型"),
   currency: z.enum(CURRENCIES, "請選擇幣別"),
+  /** 逐筆交易或快速淨值（庫存快照）；沒帶就是逐筆交易 */
+  trackingMode: optional(z.enum(["transaction", "snapshot"], "請選擇追蹤方式")),
 });
 
 /**
@@ -256,8 +258,8 @@ export function normalizeFeeSettings(raw: unknown): NormalizedFeeSettings {
  * 新帳戶的預設：台幣券商帳戶開啟估算（法定上限 0.1425%、不打折、整股最低 20、零股最低 1、元以下捨去），
  * 其他帳戶不估算。各家券商與帳戶不同，建立後請到帳戶的「手續費設定」改成自己的折扣。
  */
-export function defaultFeeSettings(account: { accountType: string; currency: string }): NormalizedFeeSettings {
-  if (account.accountType === "brokerage" && account.currency === "TWD") {
+export function defaultFeeSettings(account: { accountType: string; currency: string; trackingMode?: string }): NormalizedFeeSettings {
+  if (account.accountType === "brokerage" && account.currency === "TWD" && account.trackingMode !== "snapshot") {
     return { feeRate: "0.001425", feeDiscount: "1", feeMin: "20", feeMinOddLot: "1", feeMax: null, feeRounding: "floor" };
   }
   return { feeRate: null, feeDiscount: "1", feeMin: "0", feeMinOddLot: null, feeMax: null, feeRounding: "floor" };

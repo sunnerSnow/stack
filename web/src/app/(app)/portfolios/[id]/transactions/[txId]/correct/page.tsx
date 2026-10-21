@@ -28,7 +28,7 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
     throw error;
   }
   const t = detail.transaction;
-  const accounts = await listAccounts(db, user.id, id);
+  const accounts = (await listAccounts(db, user.id, id)).filter((a) => a.trackingMode === "transaction");
   if (!accounts.some((a) => a.id === t.accountId)) notFound();
   // 沖銷交易、已沖銷或已更正過的交易不能再更正
   if (t.reversalOfId || t.reversedById || !isPhase1Type(t.type)) redirect(`/portfolios/${id}/transactions/${txId}`);

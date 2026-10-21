@@ -21,7 +21,8 @@ export default async function NewTransactionPage({ params }: PageProps<"/portfol
     if (error instanceof AppError && error.status === 404) notFound();
     throw error;
   }
-  const accounts = await listAccounts(db, user.id, id);
+  // 快照模式的帳戶不記逐筆交易
+  const accounts = (await listAccounts(db, user.id, id)).filter((a) => a.trackingMode === "transaction");
   if (accounts.length === 0) redirect(`/portfolios/${id}`);
 
   return (

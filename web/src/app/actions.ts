@@ -12,7 +12,9 @@ import { isLocalMode } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
-import { createAccount, createPortfolio, updateAccountFees } from "@/lib/services/portfolios";
+import { createTdccImport } from "@/lib/services/imports";
+import { createAccount, createPortfolio, listAccounts, updateAccountFees } from "@/lib/services/portfolios";
+import { createSnapshot } from "@/lib/services/snapshots";
 import { correctTransaction, postTransaction, reverseTransaction } from "@/lib/services/transactions";
 
 /**
@@ -112,6 +114,7 @@ export async function createAccountAction(portfolioId: string, _prev: FormState,
       brokerName: text(formData, "brokerName"),
       accountType: text(formData, "accountType"),
       currency: text(formData, "currency"),
+      trackingMode: text(formData, "trackingMode"),
     });
   } catch (error) {
     return toFormState(error);
@@ -137,6 +140,56 @@ export async function updateAccountFeesAction(portfolioId: string, accountId: st
   }
   revalidatePath(`/portfolios/${portfolioId}`);
   return { done: true };
+}
+
+// ---------------------------------------------------------------------------
+// 庫存快照與匯入
+// ---------------------------------------------------------------------------
+
+export interface ImportActionResult extends FormState {
+  importId?: string;
+  accountId?: string;
+}
+
+/**
+ * 集保 e 存摺：瀏覽器已經解析好異動明細（PDF 與密碼不會送到這裡）。
+ * 可以順便建立一個快照模式的帳戶。成功後回傳批次 ID，畫面轉到「確認庫存」。
+ */
+export async function createTdccImportAction(
+  portfolioId: string,
+  payload: { accountId?: string; newAccountName?: string; fileName: string; fileHash: string; header: unknown; movements: unknown },
+): Promise<ImportActionResult> {
+  const user = await sessionOrRedirect();
+  try {
+    const db = await getDb();
+    const accountId = payload.newAccountName
+      ? (await createAccount(db, user.id, portfolioId, { name: payload.newAccountName, accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" })).id
+      : payload.accountId;
+    // 帳戶要屬於這個投資組合（建立快照時會再檢查一次權限）
+    const accounts = await listAccounts(db, user.id, portfolioId);
+    if (!accounts.some((a) => a.id === accountId)) return { error: "請選擇這個投資組合裡的帳戶", fieldErrors: { accountId: "請選擇帳戶" } };
+    const batch = await createTdccImport(db, user.id, { ...payload, accountId });
+    revalidatePath(`/portfolios/${portfolioId}`);
+    return { done: true, importId: batch.id, accountId: batch.accountId };
+  } catch (error) {
+    return toFormState(error);
+  }
+}
+
+export async function createSnapshotAction(portfolioId: string, payload: Record<string, unknown>): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  let target: string;
+  try {
+    const db = await getDb();
+    const accounts = await listAccounts(db, user.id, portfolioId);
+    if (!accounts.some((a) => a.id === payload.accountId)) return { error: "找不到這個帳戶" };
+    const { snapshot } = await createSnapshot(db, user.id, payload);
+    target = `/portfolios/${portfolioId}?snapshot=${snapshot.id}`;
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  redirect(target);
 }
 
 // ---------------------------------------------------------------------------
