@@ -64,7 +64,7 @@ export default async function TransactionPage({ params, searchParams }: PageProp
             回投資組合
           </Link>
         </p>
-        <h1 className="mt-2 flex flex-wrap items-center gap-3 text-[28px] font-black">
+        <h1 className="page-title flex flex-wrap items-center gap-3">
           <span>
             {t.typeLabel} {t.asset ? <span className="num">{t.asset.symbol}</span> : null}
           </span>

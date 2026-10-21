@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BRICK, BrickWall, type WallBrick } from "@/components/bricks";
 import { Amount, Pnl } from "@/components/money";
 import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
@@ -70,33 +71,49 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
   const snapshotOf = new Map(snapshots.map((s) => [s.accountId, s]));
   const justSaved = typeof savedSnapshot === "string" ? snapshots.find((s) => s.id === savedSnapshot) : undefined;
   const snapshotHoldings = snapshots.flatMap((s) => s.positions.map((p) => ({ ...p, accountId: s.accountId, accountName: s.accountName, asOfDate: s.asOfDate })));
+  const wall = holdingBricks(valuation.holdings, summary.cash);
 
   return (
-    <div className="grid grid-cols-1 gap-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="grid grid-cols-1 gap-10">
+      {/* 主視覺：左邊組合名稱與動作，右邊是持倉疊成的積木牆（最上面虛線那塊是「下一塊」） */}
+      <header className="grid items-center gap-8 lg:grid-cols-[1.1fr_1fr]">
         <div>
           <p className="kicker">
             <Link href="/portfolios" className="hover:underline">
-              投資組合
+              Build — 投資組合
             </Link>
           </p>
-          <h1 className="mt-2 text-[28px] font-black">{portfolio.name}</h1>
-          <p className="mt-1 text-sm text-ink-2">
+          <h1 className="page-title">{portfolio.name}</h1>
+          <p className="mt-3 text-sm text-ink-2">
             基準幣別 <span className="num">{portfolio.baseCurrency}</span> · {accounts.length} 個帳戶 · {summary.transactionCount} 筆交易
             {summary.snapshotAccounts > 0 ? ` · ${summary.snapshotAccounts} 個帳戶用庫存快照` : ""}
           </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Link href={`/portfolios/${id}/imports/tdcc`} className="btn">
-            匯入集保 e 存摺
-          </Link>
-          {tradingAccounts.length > 0 ? (
-            <Link href={`/portfolios/${id}/transactions/new`} className="btn btn-sun">
-              ＋ 新增交易
+          <div className="mt-6 flex flex-wrap gap-3.5">
+            {tradingAccounts.length > 0 ? (
+              <Link href={`/portfolios/${id}/transactions/new`} className="btn btn-sun">
+                ＋ 新增交易
+              </Link>
+            ) : null}
+            <Link href={`/portfolios/${id}/imports/tdcc`} className="btn">
+              匯入集保 e 存摺
             </Link>
+          </div>
+        </div>
+        <div className="relative">
+          <BrickWall bricks={wall} ghostLabel={wall.length === 0 ? "＋第一塊" : "＋下一塊"} className="mx-auto h-auto max-h-[380px] w-full max-w-[460px]" />
+          <div className="absolute left-0 top-2 border-2 border-ink bg-paper px-2 py-1 font-mono text-[11.5px] tracking-[0.08em] text-ink-2 shadow-[3px_3px_0_var(--color-ink)]">
+            <b className="font-medium text-ink">
+              {base} {formatDecimal(valuation.totalValue, { maxFraction: 0 })}
+            </b>{" "}
+            總淨值
+          </div>
+          {performance.twr.status === "ok" ? (
+            <div className="absolute right-0 top-1/3 border-2 border-ink bg-paper px-2 py-1 font-mono text-[11.5px] tracking-[0.08em] text-ink-2 shadow-[3px_3px_0_var(--color-ink)]">
+              {pct(performance.twr.cumulative)} <b className="font-medium text-ink">TWR</b>
+            </div>
           ) : null}
         </div>
-      </div>
+      </header>
 
       {justSaved ? (
         <p className="success">
@@ -115,36 +132,37 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
       ) : null}
 
       {/* 估值：換算成基準幣別；缺價格或匯率的部分不計入，並標示不完整 */}
-      <section className="panel">
-        <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
-          <div className="p-5">
-            <p className="kicker">總淨值（{base}）</p>
-            <p className="mt-2 flex flex-wrap items-center gap-2 text-[26px] font-black">
-              <Amount value={valuation.totalValue} />
-              <QualityTag quality={valuation.quality} />
-            </p>
+      <section aria-label="估值">
+        <div className="band grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="border-ink max-sm:border-b-[3px] sm:max-lg:border-b-[3px] sm:max-lg:border-r-[3px]">
+            <div className="v">
+              <small>{base}</small>
+              <BandNumber value={valuation.totalValue} />
+            </div>
+            <div className="k flex flex-wrap items-center justify-between gap-2">
+              總淨值 <QualityTag quality={valuation.quality} />
+            </div>
           </div>
-          <div className="p-5">
-            <p className="kicker">證券市值</p>
-            <p className="mt-2 text-[19px] font-medium">
-              <Amount value={valuation.securitiesValue} currency={base} />
-            </p>
+          <div className="border-ink max-sm:border-b-[3px] sm:max-lg:border-b-[3px] lg:border-l-[3px]">
+            <div className="v">
+              <BandNumber value={valuation.securitiesValue} />
+            </div>
+            <div className="k">證券市值</div>
           </div>
-          <div className="p-5">
-            <p className="kicker">現金</p>
-            <p className="mt-2 text-[19px] font-medium">
-              <Amount value={valuation.cashValue} currency={base} />
-            </p>
+          <div className="border-ink max-sm:border-b-[3px] sm:max-lg:border-r-[3px] lg:border-l-[3px]">
+            <div className="v">
+              <BandNumber value={valuation.cashValue} />
+            </div>
+            <div className="k">現金</div>
           </div>
-          <div className="p-5">
-            <p className="kicker">未實現損益</p>
-            <p className="mt-2 text-[19px] font-medium">
-              <Pnl value={valuation.unrealizedPnl} currency={base} />
-            </p>
-            {valuation.costIncomplete ? <p className="mt-1 text-xs text-ink-3">只含有成本的持股</p> : null}
+          <div className="border-ink lg:border-l-[3px]">
+            <div className="v">
+              <BandNumber value={valuation.unrealizedPnl} pnl />
+            </div>
+            <div className="k">未實現損益{valuation.costIncomplete ? "（只含有成本的持股）" : ""}</div>
           </div>
         </div>
-        <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+        <p className="mt-4 text-xs leading-relaxed text-ink-2">
           估值日 <span className="num">{valuation.asOf}</span>：每檔用當天或之前最近的收盤價（台股證交所／櫃買中心、美股 FinMind），價格日期見持倉表。
           {valuation.fxUsed.map((r) => ` ${r.base}/${r.quote} ${r.rate}（${r.date} 臺銀即期中價）。`)}
           {valuation.missingPrices.length > 0 ? ` 還沒有價格、未計入市值：${valuation.missingPrices.join("、")}（每天收盤後更新）。` : ""}
@@ -170,7 +188,13 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
 
       {/* 帳本彙總：各幣別分開列，不做匯率換算 */}
       <section className="panel">
-        <p className="kicker px-5 pt-4">帳本（各幣別分開，未換算）</p>
+        <div className="panel-head">
+          <div>
+            <p className="sh-n">04 — Ledger</p>
+            <h2>帳本</h2>
+          </div>
+          <span className="text-xs text-ink-2">各幣別分開，未換算</span>
+        </div>
         <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 lg:divide-x-2">
           <div className="p-5">
             <p className="kicker">現金</p>
@@ -214,7 +238,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
       <div className="grid grid-cols-1 gap-6">
         <section className="panel min-w-0">
           <div className="panel-head">
-            <h2>持倉</h2>
+            <div>
+              <p className="sh-n">05 — Holdings</p>
+              <h2>持倉</h2>
+            </div>
             <span className="text-xs text-ink-2">逐筆帳戶依 FIFO 批次；快照帳戶取最新快照</span>
           </div>
           {holdings.length === 0 && snapshotHoldings.length === 0 ? (
@@ -312,7 +339,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
 
         <section className="panel">
           <div className="panel-head">
-            <h2>帳戶</h2>
+            <div>
+              <p className="sh-n">06 — Accounts</p>
+              <h2>帳戶</h2>
+            </div>
             <span className="tag">{accounts.length} 個</span>
           </div>
           {accounts.length === 0 ? (
@@ -413,7 +443,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
 
       <section className="panel min-w-0">
         <div className="panel-head">
-          <h2>交易紀錄</h2>
+          <div>
+            <p className="sh-n">07 — Transactions</p>
+            <h2>交易紀錄</h2>
+          </div>
           <span className="text-xs text-ink-2">最近 {transactions.length} 筆 · 只能新增，記錯了用沖銷更正</span>
         </div>
         {transactions.length === 0 ? (
@@ -491,31 +524,50 @@ function pct(ratio: string | null): string {
   return ratio === null ? "—" : `${formatDecimal(new D(ratio).times(100).toFixed(), { maxFraction: 2, signed: true })}%`;
 }
 
-function Metric({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
-  return (
-    <div className="p-5">
-      <p className="kicker">{label}</p>
-      <div className="mt-2 text-[19px] font-medium">{value}</div>
-      {note ? <p className="mt-1 text-xs leading-relaxed text-ink-3">{note}</p> : null}
-    </div>
-  );
-}
-
-/** 績效：算不出來的指標顯示「無法計算」與原因，不顯示 0% */
+/** 績效（海軍藍區塊，同首頁的模組區）：算不出來的指標顯示「無法計算」與原因，不顯示 0% */
 function PerformancePanel({ p }: { p: PerformanceDto }) {
   const base = p.baseCurrency;
   const unavailable = (reason: string | null) => (
     <>
       <span className="tag tag-warn">無法計算</span>
-      <span className="mt-1 block text-xs font-normal leading-relaxed text-ink-3">{reason}</span>
+      <span className="mt-1.5 block text-xs font-normal leading-relaxed text-on-navy">{reason}</span>
     </>
   );
   const b = p.breakdown;
+  const cards: { label: string; value: React.ReactNode; note?: React.ReactNode; tone: string }[] = [
+    {
+      label: `整體投資損益（${base}）`,
+      value: p.totalPnl === null ? unavailable("缺少淨投入或期末淨值") : <Pnl value={p.totalPnl} currency={base} />,
+      note: p.netContributions !== null ? <>總淨值 − 淨投入 {formatDecimal(p.netContributions, { maxFraction: 0 })}</> : undefined,
+      tone: "",
+    },
+    {
+      label: "簡單報酬率",
+      value: p.simpleReturn === null ? <span className="text-on-navy-2">不適用</span> : <span className="num">{pct(p.simpleReturn)}</span>,
+      note: "整體損益 ÷ 淨投入",
+      tone: "y",
+    },
+    {
+      label: "XIRR（年化）",
+      value: p.xirr.status === "ok" ? <span className="num">{pct(p.xirr.rate)}</span> : unavailable(p.xirr.reason),
+      note: p.xirr.status === "ok" ? "資金加權：入金為負、出金為正、期末淨值為正" : undefined,
+      tone: "c",
+    },
+    {
+      label: "TWR（累積）",
+      value: p.twr.status === "ok" ? <span className="num">{pct(p.twr.cumulative)}</span> : unavailable(p.twr.reason),
+      note: p.twr.status === "ok" ? (p.twr.annualized !== null ? `年化 ${pct(p.twr.annualized)}` : "期間不滿一年，不年化") : undefined,
+      tone: "",
+    },
+  ];
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>績效</h2>
-        <span className="text-xs text-ink-2">
+    <section className="navy-block px-5 py-6 sm:px-7 sm:py-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="sh-n">02 — Performance</p>
+          <h2 className="mt-1 text-[22px] font-black tracking-[0.04em]">績效</h2>
+        </div>
+        <span className="text-xs text-on-navy">
           {p.from ? (
             <>
               逐筆記帳的帳戶 · <span className="num">{p.from}</span> ～ <span className="num">{p.asOf}</span>（{p.days} 天）
@@ -525,25 +577,16 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
           )}
         </span>
       </div>
-      <div className="grid divide-y-2 divide-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
-        <Metric
-          label={`整體投資損益（${base}）`}
-          value={p.totalPnl === null ? unavailable("缺少淨投入或期末淨值") : <Pnl value={p.totalPnl} currency={base} />}
-          note={p.netContributions !== null ? <>總淨值 − 淨投入 <Amount value={p.netContributions} currency={base} /></> : undefined}
-        />
-        <Metric label="簡單報酬率" value={p.simpleReturn === null ? <span className="text-ink-3">不適用</span> : <span className="num">{pct(p.simpleReturn)}</span>} note="整體損益 ÷ 淨投入" />
-        <Metric
-          label="XIRR（年化）"
-          value={p.xirr.status === "ok" ? <span className="num">{pct(p.xirr.rate)}</span> : unavailable(p.xirr.reason)}
-          note={p.xirr.status === "ok" ? "資金加權：入金為負、出金為正、期末淨值為正" : undefined}
-        />
-        <Metric
-          label="TWR（累積）"
-          value={p.twr.status === "ok" ? <span className="num">{pct(p.twr.cumulative)}</span> : unavailable(p.twr.reason)}
-          note={p.twr.status === "ok" ? (p.twr.annualized !== null ? `年化 ${pct(p.twr.annualized)}` : "期間不滿一年，不年化") : undefined}
-        />
+      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((c) => (
+          <div key={c.label} className={`mod-card ${c.tone}`}>
+            <p className="text-xs font-bold tracking-[0.06em] text-on-navy">{c.label}</p>
+            <div className="mt-2 font-display text-[22px] font-black leading-tight [&_.num]:font-display">{c.value}</div>
+            {c.note ? <p className="mt-2 text-xs leading-relaxed text-on-navy-2">{c.note}</p> : null}
+          </div>
+        ))}
       </div>
-      <dl className="grid gap-x-6 gap-y-1 border-t-2 border-ink px-5 py-3 text-sm sm:grid-cols-3">
+      <dl className="mt-7 grid gap-x-8 gap-y-1.5 border-t-[3px] border-cream pt-4 text-sm sm:grid-cols-3">
         {(
           [
             ["已實現", <Pnl key="r" value={b.realized} currency={base} />],
@@ -551,16 +594,16 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
             ["股息利息（稅後）", <Amount key="i" value={b.incomeNet} currency={base} />],
             ["單獨記的費用稅費", <Amount key="c" value={b.standaloneCosts} currency={base} />],
             ["交易成本（已含在損益裡）", <Amount key="t" value={b.tradingCosts} currency={base} />],
-            ["匯率影響（估算）", b.fxEffect === null ? <span key="f" className="text-ink-3">—</span> : <Pnl key="f" value={b.fxEffect} currency={base} />],
+            ["匯率影響（估算）", b.fxEffect === null ? <span key="f" className="text-on-navy-2">—</span> : <Pnl key="f" value={b.fxEffect} currency={base} />],
           ] as [string, React.ReactNode][]
         ).map(([label, value]) => (
-          <div key={label} className="flex items-baseline justify-between gap-3">
-            <dt className="text-xs text-ink-2">{label}</dt>
+          <div key={label} className="flex items-baseline justify-between gap-3 [&_.text-ink-3]:text-on-navy-2">
+            <dt className="text-xs text-on-navy">{label}</dt>
             <dd>{value}</dd>
           </div>
         ))}
       </dl>
-      <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+      <p className="mt-4 text-xs leading-relaxed text-on-navy">
         <QualityTag quality={p.quality === "complete" ? "complete" : "partial"} />{" "}
         每天用當天或之前最近的收盤價與匯率重建淨值；持股與現金都以成交日計。TWR 的入金／出金視為當天開盤前發生（先入金才下單）；各項損益以發生日匯率換算，未實現用今天的價格與匯率；匯率影響是整體損益減去各項損益的差額。
         {p.issues.map((issue) => ` ${issue}。`)}
@@ -607,4 +650,43 @@ function UnrealizedCell({ pnl, pct }: { pnl: string | null; pct: string | null }
 function totalCosts(...values: string[]): string | null {
   const sum = values.reduce((acc, v) => acc.plus(v), new D(0));
   return sum.isZero() ? null : sum.toFixed();
+}
+
+/** 黃色數字帶上的大數字：用 Unbounded、沒有小數；損益要顏色＋正負號＋文字 */
+function BandNumber({ value, pnl = false }: { value: string | null; pnl?: boolean }) {
+  if (value === null) return <span className="text-sun-ink">—</span>;
+  const text = formatDecimal(value, { maxFraction: 0, signed: pnl });
+  if (!pnl) return <span title={value}>{text}</span>;
+  const tone = new D(value).isZero() ? "" : new D(value).isNegative() ? "loss" : "gain";
+  return (
+    <span className={tone} title={value}>
+      {text}
+      <span className="sr-only">（{tone === "gain" ? "獲利" : tone === "loss" ? "虧損" : "持平"}）</span>
+    </span>
+  );
+}
+
+/**
+ * 積木牆的積木：每檔持股一塊（跨帳戶合併、依基準幣別市值由大到小，大的在底層），每個幣別的現金一塊；
+ * 顏色：青綠＝台股、海軍藍＝美股、黃＝現金。最多 9 塊，其餘併成「其他 N 檔」。
+ */
+function holdingBricks(holdings: { market: string; symbol: string; marketValueBase: string | null }[], cash: CurrencyAmount[]): WallBrick[] {
+  const bySymbol = new Map<string, { market: string; symbol: string; value: number }>();
+  for (const h of holdings) {
+    const key = `${h.market}:${h.symbol}`;
+    const cur = bySymbol.get(key) ?? { market: h.market, symbol: h.symbol, value: 0 };
+    cur.value += h.marketValueBase === null ? 0 : Number(h.marketValueBase);
+    bySymbol.set(key, cur);
+  }
+  const stocks = [...bySymbol.values()].sort((x, y) => y.value - x.value);
+  const cashBricks = cash.filter((c) => new D(c.amount).greaterThan(0)).map((c) => ({ label: `現金 ${c.currency}`, color: BRICK.cash, title: `現金 ${c.currency} ${c.amount}` }));
+  const room = Math.max(0, 9 - cashBricks.length);
+  const shown = stocks.length > room ? stocks.slice(0, room - 1) : stocks;
+  const rest = stocks.length - shown.length;
+  // 現金放最底層（跟首頁一樣），持股由大到小往上疊
+  return [
+    ...cashBricks,
+    ...shown.map((h) => ({ label: h.symbol, color: h.market === "US" ? BRICK.us : BRICK.tw, title: `${h.symbol} ${MARKET_LABEL[h.market] ?? h.market}` })),
+    ...(rest > 0 ? [{ label: `其他 ${rest} 檔`, color: BRICK.tw }] : []),
+  ];
 }

@@ -26,10 +26,14 @@
   --color-series-2: #b98500;
   --color-series-ref: #6b7c8f;
   --color-grid: #ece5d6;
+  --color-on-navy: #b9c7d6;
+  --color-on-navy-2: #8fa3b8;
+  --color-sea-lt: #8ed6cf;
 
   --font-display: var(--font-unbounded), var(--font-noto-tc), sans-serif;
   --font-sans: var(--font-noto-tc), system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-serif-tc: var(--font-noto-serif-tc), serif;
 }
 
 body {
@@ -65,8 +69,8 @@ body {
 
   .panel {
     background: var(--color-paper);
-    border: 2px solid var(--color-ink);
-    box-shadow: 4px 4px 0 var(--color-ink);
+    border: 3px solid var(--color-ink);
+    box-shadow: 6px 6px 0 var(--color-ink);
   }
   .panel-head {
     display: flex;
@@ -74,12 +78,204 @@ body {
     justify-content: space-between;
     gap: 12px;
     padding: 14px 18px;
-    border-bottom: 2px solid var(--color-ink);
+    border-bottom: 3px solid var(--color-ink);
   }
   .panel-head h2 {
     font-weight: 900;
-    font-size: 16px;
+    font-size: 18px;
     letter-spacing: 0.04em;
+  }
+  /* 區塊編號（首頁模組卡的「01 — MARKET」）：放在 h2 上面 */
+  .sh-n {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-sea-dk);
+  }
+
+  /* 頁面標題：中文用 Noto Sans TC 900，跟首頁「疊」的定義區一樣粗 */
+  .page-title {
+    font-weight: 900;
+    font-size: clamp(30px, 4.2vw, 50px);
+    line-height: 1.1;
+    letter-spacing: 0.01em;
+    margin-top: 10px;
+  }
+  /* 英文大字（Unbounded） */
+  .hero-en {
+    font-family: var(--font-display);
+    font-weight: 900;
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+  .hl-sun {
+    position: relative;
+    display: inline-block;
+    color: var(--color-sea-dk);
+    isolation: isolate;
+  }
+  .hl-sun::after {
+    content: "";
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    bottom: 0.12em;
+    height: 0.34em;
+    background: var(--color-sun);
+    z-index: -1;
+  }
+
+  /* 黃色數字帶（首頁概念區的 stats）：數字大、標籤在下方的粗線下 */
+  .band {
+    display: grid;
+    background: var(--color-sun);
+    border: 3px solid var(--color-ink);
+    box-shadow: 6px 6px 0 var(--color-ink);
+  }
+  .band > div {
+    padding: 22px 20px 18px;
+    min-width: 0;
+  }
+  .band .v {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(24px, 2.6vw, 38px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+  }
+  .band .v small {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    display: inline-block;
+    background: var(--color-ink);
+    color: var(--color-sun);
+    padding: 2px 6px;
+    vertical-align: top;
+    margin-right: 6px;
+  }
+  .band .k {
+    font-size: 12.5px;
+    font-weight: 700;
+    border-top: 2px solid var(--color-ink);
+    margin-top: 14px;
+    padding-top: 8px;
+  }
+
+  /* 海軍藍區塊（首頁模組區）：奶油白粗框卡片＋彩色硬陰影 */
+  .navy-block {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    border: 3px solid var(--color-ink);
+    box-shadow: 8px 8px 0 var(--color-sea);
+  }
+  .navy-block .sh-n {
+    color: var(--color-sea-lt);
+  }
+  .navy-block .kicker {
+    color: var(--color-on-navy);
+  }
+  .navy-block .kicker::before {
+    background: var(--color-sun);
+  }
+  .mod-card {
+    border: 3px solid var(--color-cream);
+    box-shadow: 6px 6px 0 var(--color-sea);
+    padding: 20px 20px 22px;
+    min-width: 0;
+  }
+  .mod-card.y {
+    box-shadow: 6px 6px 0 var(--color-sun);
+  }
+  .mod-card.c {
+    box-shadow: 6px 6px 0 var(--color-cream);
+  }
+  .navy-block .tag {
+    border-color: var(--color-cream);
+  }
+  .navy-block .tag-warn {
+    background: transparent;
+    color: var(--color-sun);
+    border-color: var(--color-sun);
+  }
+  .navy-block .gain {
+    color: #ff9c9c;
+  }
+  .navy-block .loss {
+    color: #7fdba6;
+  }
+
+  /* 主導覽：三個模組動詞 */
+  .nav-mod {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 3px solid transparent;
+    padding: 2px 0;
+    white-space: nowrap;
+  }
+  .nav-mod:hover {
+    border-bottom-color: var(--color-ink);
+  }
+  .nav-mod[aria-current="page"] {
+    border-bottom-color: var(--color-sun);
+  }
+  .nav-mod.soon {
+    color: var(--color-ink-3);
+    cursor: default;
+  }
+  .nav-mod.soon:hover {
+    border-bottom-color: transparent;
+  }
+
+  /* 積木掉落動畫（首頁與投資組合頁的積木牆） */
+  .brick {
+    opacity: 0;
+    transform: translateY(-140px);
+    animation: brick-drop 700ms cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards;
+  }
+  .brick-ghost {
+    animation:
+      brick-drop 700ms cubic-bezier(0.2, 0.9, 0.3, 1.2) forwards,
+      brick-bob 2.6s ease-in-out 2.4s infinite;
+  }
+
+  /* 跑馬燈 */
+  .ticker {
+    border-top: 3px solid var(--color-ink);
+    border-bottom: 3px solid var(--color-ink);
+    background: var(--color-ink);
+    color: var(--color-cream);
+    overflow: hidden;
+    white-space: nowrap;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 14px 0;
+  }
+  .ticker .track {
+    display: inline-block;
+    animation: ticker-slide 28s linear infinite;
+  }
+  .ticker span {
+    display: inline-block;
+    padding: 0 22px;
+  }
+  .ticker span::after {
+    content: "■";
+    margin-left: 44px;
+    color: var(--color-sun);
+    font-size: 12px;
+    vertical-align: 2px;
   }
 
   .btn {
@@ -87,7 +283,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    border: 2px solid var(--color-ink);
+    border: 3px solid var(--color-ink);
     padding: 8px 14px;
     font-family: var(--font-display);
     font-weight: 700;
@@ -95,14 +291,14 @@ body {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     background: var(--color-paper);
-    box-shadow: 3px 3px 0 var(--color-ink);
+    box-shadow: 4px 4px 0 var(--color-ink);
     transition: transform 120ms ease, box-shadow 120ms ease;
     cursor: pointer;
     white-space: nowrap;
   }
   .btn:hover:not(:disabled) {
     transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0 var(--color-ink);
+    box-shadow: 2px 2px 0 var(--color-ink);
   }
   .btn:disabled {
     opacity: 0.55;
@@ -114,10 +310,10 @@ body {
   .btn-ink {
     background: var(--color-ink);
     color: var(--color-cream);
-    box-shadow: 3px 3px 0 var(--color-sea);
+    box-shadow: 4px 4px 0 var(--color-sea);
   }
   .btn-ink:hover:not(:disabled) {
-    box-shadow: 1px 1px 0 var(--color-sea);
+    box-shadow: 2px 2px 0 var(--color-sea);
   }
   .btn-quiet {
     border-color: transparent;
@@ -291,5 +487,39 @@ body {
   }
   .loss {
     color: var(--color-loss);
+  }
+}
+
+@keyframes brick-drop {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes brick-bob {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-12px);
+  }
+}
+@keyframes ticker-slide {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brick,
+  .brick-ghost {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .ticker .track {
+    animation: none;
   }
 }

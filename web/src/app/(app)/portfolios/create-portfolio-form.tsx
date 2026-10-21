@@ -6,7 +6,7 @@ import { createPortfolioAction, type FormState } from "@/app/actions";
 export function CreatePortfolioForm() {
   const [state, action, pending] = useActionState<FormState, FormData>(createPortfolioAction, {});
   return (
-    <form action={action} className="grid gap-4 p-5">
+    <form action={action} className="grid gap-4">
       {state.error ? <p className="alert">{state.error}</p> : null}
       <label className="field">
         <span>名稱</span>
@@ -22,7 +22,7 @@ export function CreatePortfolioForm() {
           <option value="USD">USD 美元</option>
         </select>
       </label>
-      <p className="text-xs leading-relaxed text-ink-3">追蹤方式：逐筆交易。快速淨值（只更新庫存快照）會在 Phase 2 開放。</p>
+      <p className="text-xs leading-relaxed text-ink-3">建立後再加帳戶：每個帳戶可以選逐筆記交易，或只更新庫存快照（快速淨值）。</p>
       <button className="btn btn-sun" type="submit" disabled={pending}>
         {pending ? "建立中…" : "建立投資組合"}
       </button>

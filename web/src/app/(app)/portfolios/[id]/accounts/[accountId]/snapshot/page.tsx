@@ -99,7 +99,7 @@ export default async function SnapshotPage({ params, searchParams }: PageProps<"
             {portfolio.name} · {account.name}
           </Link>
         </p>
-        <h1 className="mt-2 text-[28px] font-black">{batch ? "確認庫存" : "更新庫存"}</h1>
+        <h1 className="page-title">{batch ? "確認庫存" : "更新庫存"}</h1>
         <p className="mt-1 text-sm leading-relaxed text-ink-2">
           列出這一天持有的每一檔（沒列出的就是不再持有）與現金。送出後建立一份新的快照，之前的快照都會保留。
           {latest ? `上一份快照：${latest.asOfDate}。` : "這是這個帳戶的第一份快照。"}

@@ -33,7 +33,7 @@ export default async function NewTransactionPage({ params }: PageProps<"/portfol
             {portfolio.name}
           </Link>
         </p>
-        <h1 className="mt-2 text-[28px] font-black">新增交易</h1>
+        <h1 className="page-title">新增交易</h1>
         <p className="mt-1 text-sm text-ink-2">金額一律填正數，現金增減由交易類型決定。買賣的成交金額由「數量 × 單價」自動計算。</p>
       </div>
       <section className="panel">

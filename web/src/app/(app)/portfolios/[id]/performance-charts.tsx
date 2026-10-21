@@ -120,12 +120,15 @@ export function PerformanceCharts({
   return (
     <section className="panel min-w-0">
       <div className="panel-head">
-        <h2>走勢與基準比較</h2>
+        <div>
+          <p className="sh-n">03 — Trend</p>
+          <h2>走勢與基準比較</h2>
+        </div>
         <span className="text-xs text-ink-2">逐筆記帳的帳戶 · {baseCurrency}</span>
       </div>
 
       {/* 控制列：期間在前，作用在下面全部的數字與圖表 */}
-      <div className="flex flex-wrap items-end gap-x-5 gap-y-3 border-b-2 border-ink px-5 py-4">
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-3 border-b-[3px] border-ink px-5 py-4">
         <div className="grid gap-1.5">
           <span className="text-[12.5px] font-bold">期間</span>
           <div className="seg" role="group" aria-label="期間">
@@ -169,7 +172,7 @@ export function PerformanceCharts({
       {error ? <p className="alert mx-5 mt-4">{error}</p> : null}
 
       <div className={pending ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={pending}>
-        <div className="grid divide-y-2 divide-ink border-b-2 border-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
+        <div className="grid divide-y-2 divide-ink border-b-[3px] border-ink sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x-2">
           <Stat label="我的組合（TWR）" note={result.portfolio.status === "ok" ? `${result.from} 收盤 ～ ${result.to}` : undefined}>
             {result.portfolio.status === "ok" ? <span className="num">{pct(result.portfolio.value!)}</span> : <Unavailable reason={result.portfolio.reason} />}
           </Stat>
@@ -223,7 +226,7 @@ export function PerformanceCharts({
           </figure>
         </div>
 
-        <p className="border-t-2 border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
+        <p className="border-t-[3px] border-ink px-5 py-3 text-xs leading-relaxed text-ink-2">
           我的組合用時間加權報酬（TWR），入金出金不算報酬；起點是期間第一天的前一天收盤。
           {benchmark ? (
             <>

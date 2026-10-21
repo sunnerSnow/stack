@@ -9,8 +9,8 @@ import { isLocalMode, supabaseEnv } from "@/lib/config";
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  // API 自己回 401（不轉址）；/auth/callback 是 Email 確認信的回呼
-  const isPublic = pathname === "/login" || pathname.startsWith("/api/") || pathname.startsWith("/auth/");
+  // 首頁公開；API 自己回 401（不轉址）；/auth/callback 是 Email 確認信的回呼
+  const isPublic = pathname === "/" || pathname === "/login" || pathname.startsWith("/api/") || pathname.startsWith("/auth/");
 
   if (isLocalMode()) {
     if (!isPublic && !request.cookies.has(LOCAL_SESSION_COOKIE)) return redirectToLogin(request);

@@ -42,7 +42,7 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
             {portfolio.name} · 交易明細
           </Link>
         </p>
-        <h1 className="mt-2 text-[28px] font-black">更正交易</h1>
+        <h1 className="page-title">更正交易</h1>
         <p className="mt-1 text-sm leading-relaxed text-ink-2">
           原本那筆（<span className="num">{t.tradeDate}</span> {t.typeLabel} {t.asset ? <span className="num">{t.asset.symbol}</span> : null}
           ）不會被改寫：送出後會先沖銷它，再依下面的內容新增一筆，兩筆都留在交易紀錄裡。持倉與已實現損益會依 FIFO 重新計算。

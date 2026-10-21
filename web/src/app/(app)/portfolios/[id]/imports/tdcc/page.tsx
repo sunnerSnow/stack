@@ -32,7 +32,7 @@ export default async function TdccImportPage({ params, searchParams }: PageProps
             {portfolio.name}
           </Link>
         </p>
-        <h1 className="mt-2 text-[28px] font-black">匯入集保 e 存摺</h1>
+        <h1 className="page-title">匯入集保 e 存摺</h1>
         <p className="mt-1 text-sm leading-relaxed text-ink-2">
           上傳 e 存摺匯出的「證券存摺登摺資料」PDF，系統依異動明細推算目前每一檔的股數，你確認（或補上缺的）之後存成庫存快照。
           PDF 與密碼只在你的瀏覽器裡打開，伺服器只收到解析好的異動列；戶名、帳號、身分證字號都不會被讀取或上傳。
