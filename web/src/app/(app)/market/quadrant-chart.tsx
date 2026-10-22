@@ -1,15 +1,15 @@
 "use client";
 
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ToyBrick, toyBrickExtent } from "@/components/bricks";
+import { HomeBrick, homeBrickExtent } from "@/components/bricks";
 
 /**
  * 輪動象限圖：STACK 的積木版（SVG，海軍藍底）。
- * - 四個象限是四塊底板（淡淡的凸點紋），每個族群是一塊 2×2 積木、成員股票是 1×1 小積木。
+ * - 四個象限是四塊底板（淡淡的凸點紋），每個族群是一塊首頁那一款等角 2×2 積木（深色底上用奶油白描邊，跟首頁的海軍藍區塊一樣），成員股票是小一號的積木。
  * - RS 模式：x＝強度、y＝動能，中心 (100, 100)；IS 模式：x＝前一日強度、y＝今天漲跌，黃線是全市場平均。
- * - 積木大小＝成交金額（5 日平均，面積比例）；上漲是實心紅積木、下跌是虛線空心綠積木（台灣紅漲綠跌，色盲也看得出實心／空心）、平盤灰；
- *   黃色外框＝含我的持股。
- * - 比較大的積木有小臉：上漲笑、下跌難過；滑過時積木會跳一下。積木整塊留在框內（極端值貼邊）。
+ * - 積木大小＝成交金額（5 日平均，面積比例）；上漲是實心紅積木、下跌是首頁「下一塊」那種虛線積木（綠色，色盲也看得出實心／虛線）、平盤灰；
+ *   黃色描邊＝含我的持股。
+ * - 滑過時積木會跳一下；積木整塊留在框內（極端值貼邊）。
  * - 動畫：進場時積木一塊塊掉下來；換模式、回放時積木滑到新位置（系統設定「減少動態」時關掉）。
  * 先量到寬度才畫，避免伺服器與瀏覽器的版面不同。
  */
@@ -44,6 +44,8 @@ export const UP = "#ff9a9a";
 export const DOWN = "#289163";
 export const FLAT = "#8fa3b8";
 const DOWN_LINE = "#5cc99a";
+/** 下跌的虛線積木：頂面、左面、右面（綠色半透明） */
+const DOWN_FILLS: [string, string, string] = ["rgba(92,201,154,0.34)", "rgba(92,201,154,0.16)", "rgba(92,201,154,0.24)"];
 const SUN = "#F5D548";
 const CREAM = "#F5F0E5";
 const NAVY = "#173451";
@@ -115,13 +117,12 @@ export function QuadrantChart({ nodes, mode, baseline, selectedId, focusIds, onS
     const x = (v: number) => PAD.left + ((clampX(v) - xr[0]) / (xr[1] - xr[0])) * pw;
     const y = (v: number) => PAD.top + (1 - (clampY(v) - yr[0]) / (yr[1] - yr[0])) * ph;
     const maxSize = Math.max(1, ...nodes.map((n) => n.size));
-    // 積木大小：2×2 積木原始寬約 112，1×1 約 60
+    // 積木大小：首頁積木原始寬 120
     const scale = (n: ChartNode) => {
       const t = Math.sqrt(n.size / maxSize);
-      return n.kind === "member" ? 0.3 + t * 0.36 : 0.22 + t * Math.min(0.42, width / 2300);
+      return n.kind === "member" ? 0.2 + t * 0.26 : 0.2 + t * Math.min(0.42, width / 2300);
     };
-    const units = (n: ChartNode) => (n.kind === "member" ? 1 : 2);
-    const extent = (n: ChartNode) => toyBrickExtent(units(n), scale(n));
+    const extent = (n: ChartNode) => homeBrickExtent(scale(n));
     const halfW = (n: ChartNode) => extent(n).halfW;
     const halfH = (n: ChartNode) => extent(n).top;
     // 積木整塊留在底板裡：中心點依積木大小往內收
@@ -144,7 +145,7 @@ export function QuadrantChart({ nodes, mode, baseline, selectedId, focusIds, onS
       const above = py - extent(n).top - 4;
       return above < T + 14 ? py + extent(n).bottom + 12 : above;
     };
-    return { xr, yr, pw, ph, x, y, scale, units, halfW, halfH, at, extent, labelY, xTicks: ticks(xr[0], xr[1], step.x), yTicks: ticks(yr[0], yr[1], step.y) };
+    return { xr, yr, pw, ph, x, y, scale, halfW, halfH, at, extent, labelY, xTicks: ticks(xr[0], xr[1], step.x), yTicks: ticks(yr[0], yr[1], step.y) };
   }, [width, nodes, mode, height]);
 
   // 標籤：選取、持股與成交金額前幾大的才放，避開彼此重疊
@@ -280,20 +281,19 @@ export function QuadrantChart({ nodes, mode, baseline, selectedId, focusIds, onS
               const up = !flat && ret! > 0;
               const s = layout.scale(n);
               const { px, py } = layout.at(n, vx, vy);
-              const face = s >= (n.kind === "member" ? 0.4 : 0.3);
               const hop = hover?.id === n.id && !reduced;
+              const selected = n.id === selectedId;
               return (
                 <g key={n.id} style={{ transform: `translate(${px}px, ${py}px)`, transition: move }} opacity={dim ? 0.16 : 1}>
                   <g style={{ transform: hop ? "translateY(-5px)" : "none", transition: reduced ? undefined : "transform 160ms ease-out" }}>
                     <g className={reduced ? undefined : "brick"} style={reduced ? undefined : { animationDelay: `${Math.min(k * 14, 900)}ms` }}>
-                      <ToyBrick
-                        units={layout.units(n)}
+                      <HomeBrick
                         scale={s}
-                        color={flat ? FLAT : up ? UP : DOWN_LINE}
-                        glass={!flat && !up}
-                        line={NAVY}
-                        outline={n.held ? SUN : n.id === selectedId ? CREAM : undefined}
-                        mood={face ? (flat ? "flat" : up ? "smile" : "sad") : undefined}
+                        color={flat ? FLAT : UP}
+                        ghost={!flat && !up}
+                        ghostFills={DOWN_FILLS}
+                        line={n.held ? SUN : !flat && !up ? DOWN_LINE : CREAM}
+                        lineWidth={selected ? 3.2 : n.held ? 2.4 : 1.6}
                       />
                     </g>
                   </g>
