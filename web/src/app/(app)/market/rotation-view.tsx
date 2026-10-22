@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { QUADRANT_LABEL, type Quadrant } from "@/lib/market/rotation";
 import type { Flow, GroupDetailDto, GroupLevel, RotationDto, RotationNode, StockScreensDto } from "@/lib/services/market";
+import { BrickWall, WALL_METRICS, type WallMetric } from "./brick-wall";
 import { type ChartNode, DOWN, FLAT, QuadrantChart, UP } from "./quadrant-chart";
 
 const LEVELS: { id: GroupLevel; label: string }[] = [
@@ -53,6 +54,9 @@ function Seg<T extends string | number>({ value, options, onChange, label }: { v
 }
 
 export function RotationView({ data, level, screens }: { data: RotationDto; level: GroupLevel; screens: StockScreensDto }) {
+  // 主畫面是積木牆；象限圖是第二個分頁
+  const [view, setView] = useState<"wall" | "quadrant">("wall");
+  const [metric, setMetric] = useState<WallMetric>("ret");
   const [mode, setMode] = useState<"rs" | "is">("rs");
   const [onlyHeld, setOnlyHeld] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -189,17 +193,17 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
       {/* 控制列 */}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div className="grid gap-1.5">
-          <span className="text-[12.5px] font-bold">模式</span>
+          <span className="text-[12.5px] font-bold">檢視</span>
           <Seg
-            label="模式"
-            value={mode}
-            onChange={(m) => {
+            label="檢視"
+            value={view}
+            onChange={(v) => {
               setFrame(null);
-              setMode(m);
+              setView(v);
             }}
             options={[
-              { id: "rs", label: "RS 強度×動能" },
-              { id: "is", label: "IS 強度×今日漲跌" },
+              { id: "wall", label: "積木牆" },
+              { id: "quadrant", label: "輪動象限" },
             ]}
           />
         </div>
@@ -219,19 +223,56 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
         </label>
       </div>
 
-      {/* 象限圖＋右側明細 */}
+      {/* 積木牆（或象限圖）＋右側明細 */}
       <section id="rotation-chart" className="navy-block grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-on-navy">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-xs text-on-navy">
             <span>
-              <span className="sh-n">01 — Rotation</span> · 積木越大成交金額越大 · 實心紅積木＝上漲、虛線空心綠積木＝下跌 · 黃框＝含我的持股
+              <span className="sh-n">01 — {view === "wall" ? "Wall" : "Rotation"}</span> ·{" "}
+              {view === "wall" ? "積木寬度＝成交金額 · 紅＝漲（越深越多）、虛線綠＝跌 · 黃框＝含我的持股" : "積木越大成交金額越大 · 實心紅積木＝上漲、虛線綠積木＝下跌 · 黃框＝含我的持股"}
             </span>
-            <span className="flex items-center gap-3">
-              {mode === "rs" && replayDates.length > 1 ? (
+            <span className="flex flex-wrap items-center gap-3">
+              {view === "wall" ? (
+                <label className="flex items-center gap-2">
+                  <span className="font-bold text-cream">顏色</span>
+                  <select
+                    className="border-2 border-cream bg-ink px-2 py-1 text-xs font-bold text-cream"
+                    value={metric}
+                    onChange={(e) => {
+                      setFrame(null);
+                      setMetric(e.target.value as WallMetric);
+                    }}
+                  >
+                    {WALL_METRICS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <Seg
+                  label="模式"
+                  value={mode}
+                  onChange={(m) => {
+                    setFrame(null);
+                    setMode(m);
+                  }}
+                  options={[
+                    { id: "rs", label: "RS 強度×動能" },
+                    { id: "is", label: "IS 強度×今日漲跌" },
+                  ]}
+                />
+              )}
+              {(view === "wall" || mode === "rs") && replayDates.length > 1 ? (
                 <button
                   type="button"
                   className="border-2 border-cream px-2.5 py-1 font-bold text-cream hover:bg-cream hover:text-ink"
-                  onClick={() => setFrame(playing ? null : 0)}
+                  onClick={() => {
+                    // 積木牆的回放是每天的漲跌重新上色
+                    if (view === "wall") setMetric("ret");
+                    setFrame(playing ? null : 0);
+                  }}
                   aria-pressed={playing}
                 >
                   {playing ? `■ 停止（${replayDates[frame!]}）` : `▶ 回放 ${replayDates.length} 日`}
@@ -239,23 +280,27 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
               ) : null}
               {selectedId ? (
                 <button type="button" className="font-bold text-cream hover:underline" onClick={() => setSelectedId(null)}>
-                  回到全貌
+                  {view === "wall" ? "取消選取" : "回到全貌"}
                 </button>
               ) : null}
             </span>
           </div>
-          <QuadrantChart
-            nodes={chartNodes}
-            mode={mode}
-            baseline={data.market?.ret ?? null}
-            selectedId={selectedId}
-            focusIds={focusIds}
-            frameDate={playing && mode === "rs" ? replayDates[frame!] : null}
-            onSelect={(id) => setSelectedId(id && id.startsWith("m:") ? selectedId : id)}
-            describe={describe}
-          />
+          {view === "wall" ? (
+            <BrickWall data={data} metric={metric} selectedId={selectedId} onSelect={setSelectedId} frameDate={playing ? replayDates[frame!] : null} onlyHeld={onlyHeld} />
+          ) : (
+            <QuadrantChart
+              nodes={chartNodes}
+              mode={mode}
+              baseline={data.market?.ret ?? null}
+              selectedId={selectedId}
+              focusIds={focusIds}
+              frameDate={playing && mode === "rs" ? replayDates[frame!] : null}
+              onSelect={(id) => setSelectedId(id && id.startsWith("m:") ? selectedId : id)}
+              describe={describe}
+            />
+          )}
           {playing ? (
-            <p className="mt-2 text-center font-display text-sm font-bold tracking-[0.12em] text-sun" aria-live="polite">
+            <p className="mt-3 text-center font-display text-sm font-bold tracking-[0.12em] text-sun" aria-live="polite">
               {replayDates[frame!]}（{frame! + 1}／{replayDates.length}）
             </p>
           ) : null}

@@ -256,6 +256,22 @@ body {
     border-bottom-color: transparent;
   }
 
+  /* 族群輪動的積木牆：每塊是按鈕，上緣有光澤、下緣有厚度，滑過跳一下 */
+  .wall-brick {
+    box-shadow:
+      inset 0 3px 0 rgba(255, 255, 255, 0.35),
+      inset 0 -5px 0 rgba(0, 0, 0, 0.14),
+      0 4px 0 rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+  }
+  .wall-brick:hover {
+    transform: translateY(-3px);
+  }
+  .wall-brick:focus-visible {
+    outline: 3px solid var(--color-sun);
+    outline-offset: 2px;
+  }
+
   /* 積木掉落動畫（首頁與投資組合頁的積木牆） */
   .brick {
     opacity: 0;
@@ -534,6 +550,9 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .wall-brick:hover {
+    transform: none;
+  }
   .brick,
   .brick-ghost {
     animation: none;

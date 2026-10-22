@@ -23,7 +23,7 @@ export default async function MarketPage({ searchParams }: PageProps<"/market">)
           <p className="kicker">Explore — 探索市場</p>
           <h1 className="page-title">族群輪動</h1>
           <p className="mt-3 max-w-[44em] text-[15px] leading-relaxed text-ink-2">
-            上市櫃的族群、產業與板塊，每天收盤後依「相對大盤的強弱」與「強弱的變化」排在四個象限：領先、轉弱、落後、改善。資金流向是線索，不是買賣訊號。
+            上市櫃的族群、產業與板塊，每天收盤後更新。積木牆一眼看出今天錢往哪裡去、哪裡漲哪裡跌；輪動象限看每個族群走到「領先、轉弱、落後、改善」哪個階段。資金流向是線索，不是買賣訊號。
           </p>
         </div>
         <p className="font-mono text-xs leading-relaxed text-ink-2">

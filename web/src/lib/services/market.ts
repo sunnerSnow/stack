@@ -53,6 +53,8 @@ export interface RotationDto {
   calcVersion: string;
   market: { ret: number | null; strength: number | null; momentum: number | null; members: number; upCount: number } | null;
   nodes: RotationNode[];
+  /** 板塊與產業（積木牆依板塊分列用）：族群的上層可能是產業或板塊 */
+  parents: { id: string; name: string; level: "sector" | "industry"; parentId: string | null; sortOrder: number }[];
 }
 
 const num = (v: string | number | null) => (v === null ? null : Number(v));
@@ -89,7 +91,7 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
   const level = opts.level ?? "theme";
   return withUser(db, userId, async (tx) => {
     const dates = await computedDates(tx, opts.date, 61);
-    const empty: RotationDto = { date: null, calcVersion: ROTATION.version, market: null, nodes: [] };
+    const empty: RotationDto = { date: null, calcVersion: ROTATION.version, market: null, nodes: [], parents: [] };
     if (dates.length === 0) return empty;
     const day = dates[0];
     const groups = await tx
@@ -155,7 +157,12 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
         held: heldGroups.has(g.id),
       });
     }
-    return { date: day, calcVersion: ROTATION.version, market, nodes };
+    const parents = await tx
+      .select({ id: marketGroups.id, name: marketGroups.name, level: marketGroups.level, parentId: marketGroups.parentId, sortOrder: marketGroups.sortOrder })
+      .from(marketGroups)
+      .where(and(eq(marketGroups.isActive, true), inArray(marketGroups.level, ["sector", "industry"])))
+      .orderBy(asc(marketGroups.sortOrder));
+    return { date: day, calcVersion: ROTATION.version, market, nodes, parents: parents as RotationDto["parents"] };
   });
 }
 
