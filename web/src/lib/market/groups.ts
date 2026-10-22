@@ -93,7 +93,10 @@ export interface ThemeDef {
   members: string[];
 }
 
-/** 族群清單（草稿，2026-10-21 起草並用資產主檔核對過代號與名稱，待使用者審核） */
+/**
+ * 族群清單（2026-10-21 起草並用資產主檔核對過代號與名稱，使用者同意先上線）。
+ * 2026-10-22：只有一檔的族群併進相關族群（電子紙 → 面板與電子紙、網通 IC → 網通與高速傳輸 IC、伺服器管理晶片 → AI 伺服器）。
+ */
 export const THEMES: ThemeDef[] = [
   // ---- 半導體 ----
   { id: "foundry", name: "晶圓代工", parent: "半導體業", members: ["2330 台積電", "2303 聯電", "5347 世界", "6770 力積電"] },
@@ -112,15 +115,13 @@ export const THEMES: ThemeDef[] = [
   { id: "mosfet", name: "功率元件 MOSFET", parent: "半導體業", members: ["6435 大中", "5299 杰力", "8261 富鼎", "3317 尼克森"] },
   { id: "diode", name: "二極體", parent: "半導體業", members: ["2481 強茂", "5425 台半", "8255 朋程"] },
   { id: "display-ic", name: "顯示驅動 IC", parent: "半導體業", members: ["3034 聯詠", "4961 天鈺", "8016 矽創", "3545 敦泰", "3592 瑞鼎"] },
-  { id: "hs-interface", name: "高速傳輸 IC", parent: "半導體業", members: ["4966 譜瑞-KY", "5269 祥碩", "6756 威鋒電子"] },
-  { id: "network-ic", name: "網通 IC", parent: "半導體業", members: ["2379 瑞昱"] },
+  { id: "hs-interface", name: "網通與高速傳輸 IC", parent: "半導體業", members: ["2379 瑞昱", "4966 譜瑞-KY", "5269 祥碩", "6756 威鋒電子"] },
   { id: "pmic", name: "電源管理 IC", parent: "半導體業", members: ["6415 矽力*-KY", "6719 力智", "3588 通嘉", "6138 茂達"] },
   { id: "mcu", name: "MCU 微控制器", parent: "半導體業", members: ["6202 盛群", "4919 新唐", "2401 凌陽", "5471 松翰"] },
-  { id: "bmc", name: "伺服器管理晶片", parent: "半導體業", members: ["5274 信驊"] },
   { id: "semi-chem", name: "半導體材料與特化", parent: "化學工業", members: ["4755 三福化", "1773 勝一", "1711 永光", "4770 上品"] },
 
   // ---- 電腦與伺服器 ----
-  { id: "ai-server", name: "AI 伺服器", parent: "tech", members: ["2382 廣達", "3231 緯創", "6669 緯穎", "2317 鴻海", "2356 英業達", "2376 技嘉", "3706 神達"] },
+  { id: "ai-server", name: "AI 伺服器", parent: "tech", members: ["2382 廣達", "3231 緯創", "6669 緯穎", "2317 鴻海", "2356 英業達", "2376 技嘉", "3706 神達", "5274 信驊"] },
   { id: "server-chassis", name: "伺服器機殼與滑軌", parent: "電腦及週邊設備業", members: ["8210 勤誠", "2059 川湖", "3693 營邦", "6584 南俊國際"] },
   { id: "thermal", name: "散熱", parent: "電腦及週邊設備業", members: ["3017 奇鋐", "3324 雙鴻", "3653 健策", "6230 尼得科超眾", "2421 建準", "8996 高力", "3338 泰碩"] },
   { id: "power-supply", name: "電源供應器", parent: "電子零組件業", members: ["2308 台達電", "2301 光寶科", "6412 群電", "3015 全漢", "6282 康舒"] },
@@ -146,9 +147,8 @@ export const THEMES: ThemeDef[] = [
   { id: "switch", name: "網通設備", parent: "通信網路業", members: ["2345 智邦", "6285 啟碁", "3596 智易", "4906 正文", "5388 中磊", "3380 明泰"] },
   { id: "leo-sat", name: "低軌衛星", parent: "通信網路業", members: ["3491 昇達科", "2314 台揚", "6285 啟碁", "2313 華通", "3138 耀登"] },
   { id: "lens", name: "光學鏡頭", parent: "光電業", members: ["3008 大立光", "3406 玉晶光", "3362 先進光"] },
-  { id: "panel", name: "面板", parent: "光電業", members: ["2409 友達", "3481 群創", "6116 彩晶"] },
+  { id: "panel", name: "面板與電子紙", parent: "光電業", members: ["2409 友達", "3481 群創", "6116 彩晶", "8069 元太"] },
   { id: "led", name: "LED", parent: "光電業", members: ["3714 富采", "2393 億光"] },
-  { id: "epaper", name: "電子紙", parent: "光電業", members: ["8069 元太"] },
   { id: "apple", name: "蘋果供應鏈", parent: "tech", members: ["2317 鴻海", "4938 和碩", "3008 大立光", "2474 可成", "3406 玉晶光", "4958 臻鼎-KY", "6269 台郡"] },
 
   // ---- 電子通路、軟體、測試 ----
