@@ -62,6 +62,16 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
   const [period, setPeriod] = useState<Period>(5);
   const [flowKind, setFlowKind] = useState<FlowKind>("total");
   const [sortKey, setSortKey] = useState<"strength" | "momentum" | "ret" | "turnover" | "flow">("strength");
+  // 回放：最近 10 個交易日，一天一格
+  const replayDates = useMemo(() => [...new Set(data.nodes.flatMap((n) => n.trail.map((t) => t.date)))].sort(), [data.nodes]);
+  const [frame, setFrame] = useState<number | null>(null);
+  const playing = frame !== null;
+  useEffect(() => {
+    if (frame === null) return;
+    const last = frame >= replayDates.length - 1;
+    const id = setTimeout(() => setFrame(last ? null : frame + 1), last ? 1400 : 900);
+    return () => clearTimeout(id);
+  }, [frame, replayDates.length]);
 
   const nodesById = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data.nodes]);
   const selectedGroup = selectedId && !selectedId.startsWith("m:") ? nodesById.get(selectedId) ?? null : null;
@@ -98,7 +108,7 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
           size: n.turnover5Avg,
           ret: n.ret,
           held: n.held,
-          trail: mode === "rs" ? n.trail.map((t) => ({ x: t.strength, y: t.momentum })) : undefined,
+          trail: mode === "rs" ? n.trail.map((t) => ({ date: t.date, x: t.strength, y: t.momentum, ret: t.ret })) : undefined,
           kind: "group" as const,
         },
       ];
@@ -106,7 +116,18 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
     const members: ChartNode[] = (shownDetail?.members ?? []).flatMap((m) => {
       const c = coords(m);
       return c
-        ? [{ id: `m:${m.assetId}`, label: m.name, ...c, size: m.turnover ?? 0, ret: m.ret, held: m.held, trail: mode === "rs" ? m.trail.map((t) => ({ x: t.strength, y: t.momentum })) : undefined, kind: "member" as const }]
+        ? [
+            {
+              id: `m:${m.assetId}`,
+              label: m.name,
+              ...c,
+              size: m.turnover ?? 0,
+              ret: m.ret,
+              held: m.held,
+              trail: mode === "rs" ? m.trail.map((t) => ({ date: t.date, x: t.strength, y: t.momentum, ret: t.ret })) : undefined,
+              kind: "member" as const,
+            },
+          ]
         : [];
     });
     return [...groups, ...members];
@@ -172,7 +193,10 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
           <Seg
             label="模式"
             value={mode}
-            onChange={setMode}
+            onChange={(m) => {
+              setFrame(null);
+              setMode(m);
+            }}
             options={[
               { id: "rs", label: "RS 強度×動能" },
               { id: "is", label: "IS 強度×今日漲跌" },
@@ -200,15 +224,41 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-on-navy">
             <span>
-              <span className="sh-n">01 — Rotation</span> · 點越大成交金額越大 · 實心紅＝上漲、空心綠＝下跌 · 黃圈＝含我的持股
+              <span className="sh-n">01 — Rotation</span> · 積木越大成交金額越大 · 實心紅積木＝上漲、虛線空心綠積木＝下跌 · 黃框＝含我的持股
             </span>
-            {selectedId ? (
-              <button type="button" className="font-bold text-cream hover:underline" onClick={() => setSelectedId(null)}>
-                回到全貌
-              </button>
-            ) : null}
+            <span className="flex items-center gap-3">
+              {mode === "rs" && replayDates.length > 1 ? (
+                <button
+                  type="button"
+                  className="border-2 border-cream px-2.5 py-1 font-bold text-cream hover:bg-cream hover:text-ink"
+                  onClick={() => setFrame(playing ? null : 0)}
+                  aria-pressed={playing}
+                >
+                  {playing ? `■ 停止（${replayDates[frame!]}）` : `▶ 回放 ${replayDates.length} 日`}
+                </button>
+              ) : null}
+              {selectedId ? (
+                <button type="button" className="font-bold text-cream hover:underline" onClick={() => setSelectedId(null)}>
+                  回到全貌
+                </button>
+              ) : null}
+            </span>
           </div>
-          <QuadrantChart nodes={chartNodes} mode={mode} baseline={data.market?.ret ?? null} selectedId={selectedId} focusIds={focusIds} onSelect={(id) => setSelectedId(id && id.startsWith("m:") ? selectedId : id)} describe={describe} />
+          <QuadrantChart
+            nodes={chartNodes}
+            mode={mode}
+            baseline={data.market?.ret ?? null}
+            selectedId={selectedId}
+            focusIds={focusIds}
+            frameDate={playing && mode === "rs" ? replayDates[frame!] : null}
+            onSelect={(id) => setSelectedId(id && id.startsWith("m:") ? selectedId : id)}
+            describe={describe}
+          />
+          {playing ? (
+            <p className="mt-2 text-center font-display text-sm font-bold tracking-[0.12em] text-sun" aria-live="polite">
+              {replayDates[frame!]}（{frame! + 1}／{replayDates.length}）
+            </p>
+          ) : null}
         </div>
 
         <aside className="min-w-0 text-sm" aria-live="polite">

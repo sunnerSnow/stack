@@ -42,7 +42,8 @@ export interface RotationNode {
   members: number;
   upCount: number;
   strongCount: number;
-  trail: { date: string; strength: number; momentum: number }[];
+  /** 10 日軌跡（舊到新），ret 是那天的漲跌（回放時上色用） */
+  trail: { date: string; strength: number; momentum: number; ret: number | null }[];
   /** 成員裡有我的持股 */
   held: boolean;
 }
@@ -149,7 +150,7 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
         trail: series
           .slice(0, TRAIL_DAYS)
           .filter((r) => r.strength !== null && r.momentum !== null)
-          .map((r) => ({ date: r.tradeDate, strength: Number(r.strength), momentum: Number(r.momentum) }))
+          .map((r) => ({ date: r.tradeDate, strength: Number(r.strength), momentum: Number(r.momentum), ret: num(r.ret) }))
           .reverse(),
         held: heldGroups.has(g.id),
       });
@@ -170,7 +171,7 @@ export interface MemberRow {
   quadrant: Quadrant | null;
   turnover: number | null;
   flows20: Flow;
-  trail: { date: string; strength: number; momentum: number }[];
+  trail: { date: string; strength: number; momentum: number; ret: number | null }[];
   held: boolean;
 }
 
@@ -242,8 +243,14 @@ export async function getGroupDetail(db: Db, userId: string, groupId: string, op
         ),
         trail: series
           .slice(0, TRAIL_DAYS)
-          .filter((r) => r.strength !== null && r.momentum !== null)
-          .map((r) => ({ date: r.tradeDate, strength: Number(r.strength), momentum: Number(r.momentum) }))
+          .map((r, i) => ({ r, prev: series[i + 1] }))
+          .filter(({ r }) => r.strength !== null && r.momentum !== null)
+          .map(({ r, prev }) => ({
+            date: r.tradeDate,
+            strength: Number(r.strength),
+            momentum: Number(r.momentum),
+            ret: r.close !== null && prev?.close ? Number(r.close) / Number(prev.close) - 1 : null,
+          }))
           .reverse(),
         held: held.has(m.id),
       };
