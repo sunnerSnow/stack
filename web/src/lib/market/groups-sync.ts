@@ -35,7 +35,11 @@ export async function syncGroups(db: Db): Promise<GroupSyncReport> {
   const usedSectors = new Set(industries.map((i) => sectorOf(i).id));
   [...SECTORS, OTHER_SECTOR]
     .filter((s) => usedSectors.has(s.id) || s.id !== OTHER_SECTOR.id)
-    .forEach((s, i) => groups.push({ id: `sector-${s.id}`, name: s.name, level: "sector", parentId: null, sortOrder: i + 1 }));
+    .forEach((s, i) => {
+      groups.push({ id: `sector-${s.id}`, name: s.name, level: "sector", parentId: null, sortOrder: i + 1 });
+      // 板塊的成員＝底下各產業的普通股
+      members.set(`sector-${s.id}`, new Set(stocks.filter((x) => x.industry && sectorOf(x.industry).id === s.id).map((x) => x.id)));
+    });
   industries.forEach((name, i) => {
     const id = industryId(name);
     groups.push({ id, name, level: "industry", parentId: `sector-${sectorOf(name).id}`, sortOrder: 100 + i });

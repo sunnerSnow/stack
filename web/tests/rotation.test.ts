@@ -290,6 +290,12 @@ describe("族群與強度計算", () => {
     const groups = await db.select().from(marketGroups);
     expect(groups.find((g) => g.id === "ind-semi")).toMatchObject({ level: "industry", parentId: "sector-tech", name: "半導體業" });
     expect(groups.find((g) => g.id === "theme-foundry")).toMatchObject({ level: "theme", parentId: "ind-semi" });
+    // 板塊的成員是底下各產業的股票（不然板塊層級會算不出來）
+    const sector = await db.execute(sql`select g.group_id, count(*)::int n from stack.market_group_members g where g.group_id in ('sector-tech', 'sector-finance') group by 1 order by 1`);
+    expect((sector as unknown as { rows: unknown[] }).rows).toEqual([
+      { group_id: "sector-finance", n: 1 },
+      { group_id: "sector-tech", n: 3 },
+    ]);
     const foundry = await db.execute(sql`select a.symbol from stack.market_group_members m join stack.assets a on a.id = m.asset_id where m.group_id = 'theme-foundry' order by 1`);
     // 「5347 世界」對上資產主檔的「世界先進」（開頭相同）也算對
     expect((foundry as unknown as { rows: { symbol: string }[] }).rows.map((x) => x.symbol)).toEqual(["2303", "2330", "5347"]);
