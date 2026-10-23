@@ -1,9 +1,14 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db/local";
-import { assets, marketDaily, marketGroupDaily, marketGroupMembers, marketGroups } from "@/lib/db/schema";
-import { type Tx, withUser } from "@/lib/db/with-user";
+import { assets, benchmarkPrices, marketDaily, marketGroupDaily, marketGroupMembers, marketGroups } from "@/lib/db/schema";
+import { type Tx } from "@/lib/db/with-user";
+import { withMarket } from "@/lib/db/with-market";
 import { notFound } from "@/lib/errors";
+import type { Flow } from "@/lib/market/flows";
 import { type Quadrant, quadrant, ROTATION } from "@/lib/market/rotation";
+import { marketCalendar, quoteDates } from "@/lib/services/market-overview";
+
+export type { Flow } from "@/lib/market/flows";
 
 /**
  * 族群輪動的讀取（登入的使用者都看得到市場資料；「我的持股」只看得到自己的）。
@@ -13,12 +18,6 @@ import { type Quadrant, quadrant, ROTATION } from "@/lib/market/rotation";
 export type GroupLevel = "sector" | "industry" | "theme";
 export const TRAIL_DAYS = 10;
 const PERIODS = [1, 5, 20, 60] as const;
-
-export interface Flow {
-  foreign: number;
-  trust: number;
-  dealer: number;
-}
 
 export interface RotationNode {
   id: string;
@@ -60,7 +59,8 @@ export interface RotationDto {
 const num = (v: string | number | null) => (v === null ? null : Number(v));
 
 /** 我的持股（所有投資組合：逐筆帳戶還有剩的批次＋快照帳戶最新快照） */
-async function heldAssetIds(tx: Tx, userId: string): Promise<Set<string>> {
+async function heldAssetIds(tx: Tx, userId: string | null): Promise<Set<string>> {
+  if (userId === null) return new Set();
   const result = await tx.execute(sql`
     select asset_id from stack.position_lots where user_id = ${userId} and remaining_quantity > 0
     union
@@ -72,24 +72,33 @@ async function heldAssetIds(tx: Tx, userId: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.asset_id));
 }
 
-/** 最近算好的交易日（全市場群組有資料的日子），新到舊 */
+/** 以最近算好的日期為終點，取實際交易日曆；計算紀錄缺一天不能讓期間往前挪。 */
 async function computedDates(tx: Tx, upTo: string | undefined, limit: number): Promise<string[]> {
-  const rows = await tx
+  const [latest] = await tx
     .select({ d: marketGroupDaily.tradeDate })
     .from(marketGroupDaily)
     .where(and(eq(marketGroupDaily.groupId, "market"), eq(marketGroupDaily.calcVersion, ROTATION.version), upTo ? lte(marketGroupDaily.tradeDate, upTo) : undefined))
     .orderBy(desc(marketGroupDaily.tradeDate))
+    .limit(1);
+  if (!latest) return [];
+  const rows = await tx.select({ d: benchmarkPrices.priceDate }).from(benchmarkPrices)
+    .where(and(eq(benchmarkPrices.benchmarkId, "taiex"), lte(benchmarkPrices.priceDate, latest.d)))
+    .orderBy(desc(benchmarkPrices.priceDate))
     .limit(limit);
   return rows.map((r) => r.d);
 }
 
-function sumFlows(rows: { foreignNet: number | null; trustNet: number | null; dealerNet: number | null }[]): Flow {
-  return rows.reduce<Flow>((a, r) => ({ foreign: a.foreign + (r.foreignNet ?? 0), trust: a.trust + (r.trustNet ?? 0), dealer: a.dealer + (r.dealerNet ?? 0) }), { foreign: 0, trust: 0, dealer: 0 });
+function sumFlows(rows: { foreignNet: number | null; trustNet: number | null; dealerNet: number | null }[], expectedDays: number): Flow {
+  const sum = (key: "foreignNet" | "trustNet" | "dealerNet") => {
+    if (rows.length !== expectedDays || rows.some((r) => r[key] === null)) return null;
+    return rows.reduce((total, r) => total + r[key]!, 0);
+  };
+  return { foreign: sum("foreignNet"), trust: sum("trustNet"), dealer: sum("dealerNet") };
 }
 
-export async function getRotation(db: Db, userId: string, opts: { level?: GroupLevel; date?: string } = {}): Promise<RotationDto> {
+export async function getRotation(db: Db, userId: string | null, opts: { level?: GroupLevel; date?: string } = {}): Promise<RotationDto> {
   const level = opts.level ?? "theme";
-  return withUser(db, userId, async (tx) => {
+  return withMarket(db, userId, async (tx) => {
     const dates = await computedDates(tx, opts.date, 61);
     const empty: RotationDto = { date: null, calcVersion: ROTATION.version, market: null, nodes: [], parents: [] };
     if (dates.length === 0) return empty;
@@ -123,8 +132,17 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
       const series = byGroup.get(g.id) ?? [];
       const today = series[0];
       if (!today || today.tradeDate !== day) continue;
+      const windowRows = (n: number) => {
+        const expected = new Set(dates.slice(0, n));
+        return series.filter((r) => expected.has(r.tradeDate));
+      };
       // 期間報酬用每天的報酬連乘（不用指數值：分批計算時指數的起點不同，不能直接相除）
-      const change = (n: number) => (series.length > n ? series.slice(0, n).reduce((g, r) => g * (1 + (r.ret === null ? 0 : Number(r.ret))), 1) - 1 : null);
+      const change = (n: number) => {
+        const recent = windowRows(n);
+        return recent.length === n && recent.every((r) => r.ret !== null)
+          ? recent.reduce((g, r) => g * (1 + Number(r.ret)), 1) - 1
+          : null;
+      };
       if (g.id === "market") {
         market = { ret: num(today.ret), strength: num(today.strength), momentum: num(today.momentum), members: today.members, upCount: today.upCount };
         continue;
@@ -145,7 +163,7 @@ export async function getRotation(db: Db, userId: string, opts: { level?: GroupL
         ret20: change(20),
         turnover: today.turnover ?? 0,
         turnover5Avg: series.slice(0, 5).reduce((a, r) => a + (r.turnover ?? 0), 0) / Math.min(5, series.length),
-        flows: Object.fromEntries(PERIODS.map((p) => [p, sumFlows(series.slice(0, p))])) as RotationNode["flows"],
+        flows: Object.fromEntries(PERIODS.map((p) => [p, sumFlows(windowRows(p), p)])) as RotationNode["flows"],
         members: today.members,
         upCount: today.upCount,
         strongCount: today.strongCount,
@@ -191,16 +209,16 @@ export interface GroupDetailDto {
   /** 成員有行情、但還沒有座標（上市不到 65 個交易日，或資料中斷後重新暖機） */
   warmingUp: number;
   /** 族群每天的法人買賣超金額（舊到新，最多 60 天） */
-  flowSeries: { date: string; foreign: number; trust: number; dealer: number }[];
+  flowSeries: ({ date: string } & Flow)[];
 }
 
-export async function getGroupDetail(db: Db, userId: string, groupId: string, opts: { date?: string } = {}): Promise<GroupDetailDto> {
-  return withUser(db, userId, async (tx) => {
+export async function getGroupDetail(db: Db, userId: string | null, groupId: string, opts: { date?: string } = {}): Promise<GroupDetailDto> {
+  return withMarket(db, userId, async (tx) => {
     const [group] = await tx.select().from(marketGroups).where(and(eq(marketGroups.id, groupId), eq(marketGroups.isActive, true)));
     if (!group) throw notFound("族群");
-    const dates = await computedDates(tx, opts.date, 60);
-    if (dates.length === 0) return { id: group.id, name: group.name, level: group.level, date: null, members: [], warmingUp: 0, flowSeries: [] };
-    const day = dates[0];
+    const [day] = await quoteDates(tx, opts.date, 1);
+    if (!day) return { id: group.id, name: group.name, level: group.level, date: null, members: [], warmingUp: 0, flowSeries: [] };
+    const dates = await marketCalendar(tx, day, 60);
     const members = await tx
       .select({ id: assets.id, symbol: assets.symbol, name: assets.name })
       .from(marketGroupMembers)
@@ -223,7 +241,7 @@ export async function getGroupDetail(db: Db, userId: string, groupId: string, op
     const out: MemberRow[] = members.map((m) => {
       const series = byAsset.get(m.id) ?? [];
       const today = series[0]?.tradeDate === day ? series[0] : undefined;
-      const prev = series.find((r) => r.tradeDate < day);
+      const prev = series.find((r) => r.tradeDate === dates[1]);
       const close = today ? num(today.close) : null;
       const s = today ? num(today.strength) : null;
       const mo = today ? num(today.momentum) : null;
@@ -241,16 +259,14 @@ export async function getGroupDetail(db: Db, userId: string, groupId: string, op
         prevStrength: prev ? num(prev.strength) : null,
         quadrant: s !== null && mo !== null ? quadrant(s, mo) : null,
         turnover: today?.turnover ?? null,
-        flows20: series.slice(0, 20).reduce<Flow>(
-          (a, r) => {
-            const c = num(r.close) ?? 0;
-            return { foreign: a.foreign + (r.foreignNet ?? 0) * c, trust: a.trust + (r.trustNet ?? 0) * c, dealer: a.dealer + (r.dealerNet ?? 0) * c };
-          },
-          { foreign: 0, trust: 0, dealer: 0 },
-        ),
+        flows20: sumFlows(series.slice(0, 20).map((r) => {
+          const close = num(r.close);
+          const value = (shares: number | null) => close === null || shares === null ? null : shares * close;
+          return { foreignNet: value(r.foreignNet), trustNet: value(r.trustNet), dealerNet: value(r.dealerNet) };
+        }), 20),
         trail: series
           .slice(0, TRAIL_DAYS)
-          .map((r, i) => ({ r, prev: series[i + 1] }))
+          .map((r) => ({ r, prev: series.find((p) => p.tradeDate === dates[dates.indexOf(r.tradeDate) + 1]) }))
           .filter(({ r }) => r.strength !== null && r.momentum !== null)
           .map(({ r, prev }) => ({
             date: r.tradeDate,
@@ -275,7 +291,7 @@ export async function getGroupDetail(db: Db, userId: string, groupId: string, op
       date: day,
       members: out.sort((a, b) => (b.turnover ?? 0) - (a.turnover ?? 0)),
       warmingUp,
-      flowSeries: flows.map((r) => ({ date: r.d, foreign: r.f ?? 0, trust: r.t ?? 0, dealer: r.dl ?? 0 })),
+      flowSeries: flows.map((r) => ({ date: r.d, foreign: r.f, trust: r.t, dealer: r.dl })),
     };
   });
 }
@@ -304,9 +320,9 @@ export interface StockScreensDto {
 
 const MIN_TURNOVER = 50_000_000;
 
-export async function getStockScreens(db: Db, userId: string, opts: { date?: string; limit?: number } = {}): Promise<StockScreensDto> {
+export async function getStockScreens(db: Db, userId: string | null, opts: { date?: string; limit?: number } = {}): Promise<StockScreensDto> {
   const limit = opts.limit ?? 30;
-  return withUser(db, userId, async (tx) => {
+  return withMarket(db, userId, async (tx) => {
     const dates = await computedDates(tx, opts.date, 6);
     if (dates.length < 6) return { date: dates[0] ?? null, continuing: [], turning: [], minTurnover: MIN_TURNOVER };
     const rows = await tx
@@ -324,13 +340,16 @@ export async function getStockScreens(db: Db, userId: string, opts: { date?: str
     for (const [a, byDate] of byAsset) {
       const today = byDate.get(dates[0]);
       if (!lead(today)) continue;
-      const avg = dates.slice(0, 5).reduce((s, d) => s + (byDate.get(d)?.t ?? 0), 0) / 5;
+      const recent = dates.slice(0, 5).map((d) => byDate.get(d)?.t);
+      if (recent.some((t) => t === undefined || t === null)) continue;
+      const avg = recent.reduce<number>((s, t) => s + t!, 0) / 5;
       if (avg < MIN_TURNOVER) continue;
       const prev = byDate.get(dates[1]);
       const ret = prev && prev.close && today!.close ? Number(today!.close) / Number(prev.close) - 1 : null;
       const item = { a, row: today!, avg, ret };
       if ([1, 2, 3].every((i) => lead(byDate.get(dates[i])))) continuing.push(item);
-      if (!lead(byDate.get(dates[5]))) turning.push(item);
+      const before = byDate.get(dates[5]);
+      if (before && before.s !== null && before.m !== null && !lead(before)) turning.push(item);
     }
     const pick = (list: typeof continuing, key: (x: (typeof continuing)[number]) => number) => list.sort((x, y) => key(y) - key(x)).slice(0, limit);
     const chosen = [...pick(continuing, (x) => Number(x.row.s)), ...pick(turning, (x) => Number(x.row.m))];

@@ -74,7 +74,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
         : { market, symbol: symbol.trim().toUpperCase(), assetType: newAssetType }
       : null;
   const estimate: CostEstimate =
-    (type === "buy" || type === "sell") && account && taxAsset && gross && !search.loading
+    (type === "buy" || type === "sell") && account && taxAsset && gross && !search.loading && !search.error
       ? estimateCosts(account.fees, taxAsset, { type, tradeDate, currency: account.currency, gross: new D(gross), quantity: new D(quantity), dayTrade: canDayTrade && dayTrade })
       : {};
   const err = (field: string) => state.fieldErrors?.[field];
@@ -178,6 +178,11 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
                 {known.active ? null : <span className="tag tag-warn ml-2">已下市</span>}
               </p>
             </div>
+          ) : search.error ? (
+            <div className="field sm:col-span-2">
+              <span>名稱</span>
+              <p className="field-error" role="alert">{search.error} <button type="button" className="underline" onClick={search.retry}>重新查詢</button></p>
+            </div>
           ) : search.loading ? (
             <div className="field sm:col-span-2">
               <span>名稱</span>
@@ -192,7 +197,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
               {err("asset.name") ? <span className="field-error">{err("asset.name")}</span> : null}
             </label>
           )}
-          {known || search.loading ? null : (
+          {known || search.loading || search.error ? null : (
             <label className="field">
               <span>類別</span>
               <select className="input" name="assetType" value={newAssetType} onChange={(e) => setNewAssetType(e.target.value)} aria-invalid={invalid("asset.assetType")}>
@@ -205,7 +210,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             {market
               ? `市場依帳戶幣別決定：${account?.currency} 帳戶記${MARKETS.find((m) => m.value === market)?.label}。`
               : `${account?.currency} 帳戶目前不能記股票買賣。`}
-            {known || search.loading ? "" : "台股上市櫃與美股的代號都在清單裡；查不到的代號會存成你自己的資產（只有你看得到），之後不必再填名稱。"}
+            {known || search.loading || search.error ? "" : "台股上市櫃與美股的代號都在清單裡；查不到的代號會存成你自己的資產（只有你看得到），之後不必再填名稱。"}
           </p>
         </div>
       ) : null}

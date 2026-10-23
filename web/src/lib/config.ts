@@ -6,15 +6,16 @@
  */
 export function supabaseEnv(): { url: string; key: string } | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   return url && key ? { url, key } : null;
 }
 
 export function isLocalMode(): boolean {
   const hasSupabase = supabaseEnv() !== null;
   const hasDb = Boolean(process.env.DATABASE_URL);
+  const hasAnySupabase = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
   if (hasSupabase && hasDb) return false;
-  if (hasSupabase !== hasDb) {
+  if (hasAnySupabase || hasDb) {
     throw new Error("設定不完整：Supabase 金鑰與 DATABASE_URL 必須一起設定（或都不設，使用本機示範模式）");
   }
   if (process.env.NODE_ENV === "production" && process.env.STACK_LOCAL_MODE !== "1") {

@@ -85,13 +85,13 @@ export async function computeRotation(db: Db, opts: { today?: string; maxDates?:
     close: (number | null)[];
     ref: (number | null)[];
     turnover: (number | null)[];
-    instValue: { f: number; t: number; d: number }[];
+    instValue: { f: number | null; t: number | null; d: number | null }[];
   }
   const stocks = new Map<string, StockData>();
   const get = (a: string) => {
     let s = stocks.get(a);
     if (!s) {
-      s = { close: Array(n).fill(null), ref: Array(n).fill(null), turnover: Array(n).fill(null), instValue: Array.from({ length: n }, () => ({ f: 0, t: 0, d: 0 })) };
+      s = { close: Array(n).fill(null), ref: Array(n).fill(null), turnover: Array(n).fill(null), instValue: Array.from({ length: n }, () => ({ f: null, t: null, d: null })) };
       stocks.set(a, s);
     }
     return s;
@@ -103,7 +103,7 @@ export async function computeRotation(db: Db, opts: { today?: string; maxDates?:
     const close = r.close === null ? null : Number(r.close);
     s.close[i] = close;
     s.turnover[i] = r.turnover;
-    if (close !== null) s.instValue[i] = { f: (r.f ?? 0) * close, t: (r.t ?? 0) * close, d: (r.dl ?? 0) * close };
+    if (close !== null) s.instValue[i] = { f: r.f === null ? null : r.f * close, t: r.t === null ? null : r.t * close, d: r.dl === null ? null : r.dl * close };
   }
   for (const x of ex) {
     const i = pos.get(x.d);
@@ -176,15 +176,16 @@ export async function computeRotation(db: Db, opts: { today?: string; maxDates?:
       let strong = 0;
       let count = 0;
       let turnover = 0;
-      const inst = { f: 0, t: 0, d: 0 };
+      const inst: StockData["instValue"][number] = { f: 0, t: 0, d: 0 };
       for (const id of ids) {
         const s = stocks.get(id)!;
         if (s.close[i] === null) continue;
         count++;
         turnover += s.turnover[i] ?? 0;
-        inst.f += s.instValue[i].f;
-        inst.t += s.instValue[i].t;
-        inst.d += s.instValue[i].d;
+        for (const key of ["f", "t", "d"] as const) {
+          const value = s.instValue[i][key];
+          inst[key] = inst[key] === null || value === null ? null : inst[key] + value;
+        }
         const r = stockRet.get(id)![i];
         if (r !== null && r > 0) up++;
         const st = stockRot.get(id)!;
@@ -198,9 +199,9 @@ export async function computeRotation(db: Db, opts: { today?: string; maxDates?:
         strength: round4(rot.strength[i]),
         momentum: round4(rot.momentum[i]),
         turnover: Math.round(turnover),
-        foreignNet: Math.round(inst.f),
-        trustNet: Math.round(inst.t),
-        dealerNet: Math.round(inst.d),
+        foreignNet: count === 0 || inst.f === null ? null : Math.round(inst.f),
+        trustNet: count === 0 || inst.t === null ? null : Math.round(inst.t),
+        dealerNet: count === 0 || inst.d === null ? null : Math.round(inst.d),
         members: count,
         upCount: up,
         strongCount: strong,

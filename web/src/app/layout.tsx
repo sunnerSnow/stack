@@ -16,7 +16,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="zh-Hant" className={`${unbounded.variable} ${notoTC.variable} ${notoSerifTC.variable} ${plexMono.variable} h-full`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/* Browser extensions may add body attributes (e.g. cz-shortcut-listen) before hydration.
+          Tolerate only this root element; application descendants still get hydration checks. */}
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>{children}</body>
     </html>
   );
 }

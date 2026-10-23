@@ -66,6 +66,7 @@ export default async function Home() {
           <a href="#concept" className="nav-mod">
             Concept
           </a>
+          <Link href="/market" className="nav-mod">Explore 探索市場</Link>
           <a href="#modules" className="nav-mod">
             Modules
           </a>

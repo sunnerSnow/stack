@@ -25,7 +25,7 @@ import {
  *
  * - 交易日以台灣加權指數（基準 taiex）有值的日子為準；只處理最近 WINDOW_DAYS 天。
  * - 每一天四個來源（上市行情、上市法人、上櫃行情、上櫃法人）分開記在 market_sync_log；抓到 0 列（還沒公布）不記，下次再抓。
- * - 回補時舊的日子先抓；有時間預算（budgetMs），用完就停，下次接著補。
+ * - 最近兩日先補齊，接著倒序補價格（讓最新輪動視窗先完成），再補歷史法人；用完 budgetMs 就停。
  * - 證交所對短時間大量請求會擋，每次請求之間停 pauseMs。
  * - 只存資產主檔裡的共用台股；超過 KEEP_DAYS 天的資料刪掉（Supabase 免費方案的空間有限）。
  */
@@ -116,6 +116,29 @@ async function storeInst(db: Db, date: string, rows: InstFlow[], ids: Map<string
   return values.length;
 }
 
+/** 法人晚到時只更新金額，保留歷史座標與指數，不要求該日期還有完整暖機視窗。 */
+async function refreshGroupFlows(db: Db, date: string): Promise<void> {
+  await db.execute(sql`
+    with members as (
+      select g.group_id, m.close, m.foreign_net, m.trust_net, m.dealer_net
+      from stack.market_group_daily g
+      join stack.market_daily m on m.trade_date = g.trade_date and m.close is not null
+      where g.trade_date = ${date} and (
+        exists (select 1 from stack.market_group_members gm where gm.group_id = g.group_id and gm.asset_id = m.asset_id)
+        or (g.group_id = 'market' and not exists (select 1 from stack.market_group_members gm where gm.group_id = 'market'))
+      )
+    ), totals as (
+      select group_id,
+        case when count(foreign_net) = count(*) then floor(sum(foreign_net * close) + 0.5) end as f,
+        case when count(trust_net) = count(*) then floor(sum(trust_net * close) + 0.5) end as t,
+        case when count(dealer_net) = count(*) then floor(sum(dealer_net * close) + 0.5) end as d
+      from members group by group_id
+    )
+    update stack.market_group_daily g set foreign_net = totals.f, trust_net = totals.t, dealer_net = totals.d
+    from totals where g.group_id = totals.group_id and g.trade_date = ${date}
+  `);
+}
+
 async function storeExRights(db: Db, rows: ExRight[], ids: Map<string, string>): Promise<number> {
   const values = rows.flatMap((x) => {
     const id = ids.get(x.symbol);
@@ -162,11 +185,14 @@ export async function syncMarket(
   const done = new Set(
     (await db.select({ d: marketSyncLog.tradeDate, s: marketSyncLog.source }).from(marketSyncLog).where(inArray(marketSyncLog.tradeDate, days))).map((r) => `${r.d}:${r.s}`),
   );
-  // 舊的日子先補：累積到 65 個交易日就能開始算強度，不用等整段補完
-  const todo = days.flatMap((d) => SOURCES.filter((s) => !done.has(`${d}:${s}`)).map((s) => ({ date: d, source: s })));
+  // 最新兩日含法人先可見；歷史價格由近到遠補，避免一直等待很舊的視窗才有最新座標。
+  const recent = days.slice(-2).reverse();
+  const history = days.slice(0, -2).reverse();
+  const jobs = (dates: string[], sources: readonly Source[]) => dates.flatMap((d) => sources.filter((s) => !done.has(`${d}:${s}`)).map((s) => ({ date: d, source: s })));
+  const todo = [...jobs(recent, SOURCES), ...jobs(history, ["twse_quotes", "tpex_quotes"]), ...jobs(history, ["twse_inst", "tpex_inst"])];
 
   // 除權息參考價：從最早還沒抓的那天抓到今天（上市、上櫃各一次）；都抓齊了就只抓最近 10 天
-  const exFrom = todo.length > 0 ? todo[0].date : minusDays(today, 10);
+  const exFrom = todo.length > 0 ? todo.reduce((earliest, job) => job.date < earliest ? job.date : earliest, today) : minusDays(today, 10);
   try {
     report.exRights += await storeExRights(db, parseTwseExRights(await getJson(fetcher, twseExRightsUrl(exFrom, today))), ids);
     await sleep(pause);
@@ -193,6 +219,10 @@ export async function syncMarket(
       }
       const stored = job.source.endsWith("quotes") ? await storeQuotes(db, job.date, rows as DailyQuote[], ids) : await storeInst(db, job.date, rows as InstFlow[], ids);
       report.stored += stored;
+      // 法人常晚於行情公布；即使已超出可重算的暖機範圍，也要能補齊金額。
+      if (!job.source.endsWith("quotes") && stored > 0) {
+        await refreshGroupFlows(db, job.date);
+      }
       await db.insert(marketSyncLog).values({ tradeDate: job.date, source: job.source, rows: rows.length }).onConflictDoNothing();
     } catch (e) {
       report.errors.push(`${job.date} ${job.source}：${message(e)}`);

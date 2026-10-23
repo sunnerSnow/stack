@@ -181,7 +181,7 @@ function Row({ row, market, error, onChange, onRemove }: { row: EditableRow; mar
   const editableSymbol = row.origin === "manual";
   const search = useAssetSearch(editableSymbol ? market : null, row.symbol);
   const known = editableSymbol ? search.exact : null;
-  const needsName = editableSymbol ? Boolean(row.symbol.trim()) && !search.loading && !known : row.needsName;
+  const needsName = editableSymbol ? Boolean(row.symbol.trim()) && !search.loading && !search.error && !known : row.needsName;
   const diff =
     row.previousQuantity !== null && DECIMAL_RE.test(row.quantity) ? new D(row.quantity).minus(row.previousQuantity) : row.previousQuantity === null ? null : undefined;
   const label = ORIGIN_LABEL[row.origin];
@@ -214,7 +214,11 @@ function Row({ row, market, error, onChange, onRemove }: { row: EditableRow; mar
           {label ? <span className="tag ml-2">{label}</span> : null}
         </td>
         <td className="min-w-[140px]">
-          {needsName ? (
+          {search.error ? (
+            <span className="field-error" role="alert">{search.error} <button type="button" className="underline" onClick={search.retry}>重新查詢</button></span>
+          ) : search.loading ? (
+            <span className="text-ink-3" role="status">查詢中…</span>
+          ) : needsName ? (
             <span className="flex gap-1">
               <input className="input w-32" value={row.name} placeholder="名稱" maxLength={120} onChange={(e) => onChange({ name: e.target.value })} aria-label="名稱" />
               <select className="input w-20" value={row.assetType} onChange={(e) => onChange({ assetType: e.target.value as "stock" | "etf" })} aria-label="類別">

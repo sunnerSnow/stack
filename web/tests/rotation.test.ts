@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAssetRecords } from "@/lib/assets/sync";
 import type { Db } from "@/lib/db/local";
-import { benchmarkPrices, marketGroupMembers, marketGroups } from "@/lib/db/schema";
+import { benchmarkPrices, marketGroupDaily, marketGroupMembers, marketGroups } from "@/lib/db/schema";
 import {
   parseTpexExRights,
   parseTpexInst,
@@ -17,7 +17,7 @@ import { syncGroups } from "@/lib/market/groups-sync";
 import { syncMarket } from "@/lib/market/market-sync";
 import { chainIndex, dailyReturns, dataFlags, groupReturns, quadrant, ROTATION, rotationSeries } from "@/lib/market/rotation";
 import { computeRotation } from "@/lib/market/rotation-compute";
-import { getGroupDetail, getRotation } from "@/lib/services/market";
+import { getGroupDetail, getRotation, getStockScreens } from "@/lib/services/market";
 import { postTransaction } from "@/lib/services/transactions";
 import { createLedger, createTestDb, req } from "./helpers/db";
 
@@ -209,6 +209,19 @@ describe("同步全市場資料", () => {
     await applyAssetRecords(db, "twse-isin", [twAsset("2330", "台積電"), twAsset("6488", "環球晶", "半導體業", "TPEx")]);
   });
 
+  it("最近兩日先抓，其餘優先倒序補行情以完成最近輪動視窗", async () => {
+    await seedDays(["2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20"]);
+    const calls: string[] = [];
+    await syncMarket(db, async (url: string) => {
+      calls.push(url);
+      if (url.includes("MI_INDEX")) return Response.json(twseQuotes([["2330", "台積電", "1000", "1", "100000", "100", "100", "100", "100", "", "0"]]));
+      if (url.includes("dailyQuotes")) return Response.json(tpexQuotes([["6488", "環球晶", "100", "0", "100", "100", "100", "100", "1000", "100000"]]));
+      return Response.json({ stat: "OK", fields: [], data: [], tables: [] });
+    }, { today: "2026-10-20", pauseMs: 0 });
+    expect(calls.filter((url) => url.includes("MI_INDEX")).map((url) => new URL(url).searchParams.get("date")))
+      .toEqual(["20261020", "20261019", "20261016", "20261015"]);
+  });
+
   it("每天四個來源分開記；法人還沒公布的下次再抓；除權息參考價一起存", async () => {
     await seedDays(["2026-10-19", "2026-10-20"]);
     const calls: string[] = [];
@@ -224,8 +237,9 @@ describe("同步全市場資料", () => {
       return Response.json(tpexEx([]));
     };
     const r = await syncMarket(db, fetcher, { today: "2026-10-20", pauseMs: 0 });
+    expect(calls.find((url) => url.includes("MI_INDEX"))).toContain("date=20261020");
     expect(r).toMatchObject({ tradingDays: 2, exRights: 1, errors: [] });
-    // 舊的日子先抓：2026-10-20 的上市法人還沒公布，留到下次
+    // 最新行情優先；2026-10-20 的上市法人還沒公布，留到下次
     expect(r.pending).toBe(1);
     const rows = await db.execute(sql`select a.symbol, d.trade_date::text, d.close::text, d.foreign_net::text, d.trust_net::text from stack.market_daily d join stack.assets a on a.id = d.asset_id order by 2, 1`);
     expect((rows as unknown as { rows: unknown[] }).rows).toEqual([
@@ -238,6 +252,13 @@ describe("同步全市場資料", () => {
     const again = await syncMarket(db, fetcher, { today: "2026-10-20", pauseMs: 0 });
     expect(calls.filter((u) => !u.includes("TWT49U") && !u.includes("exDailyQ"))).toEqual([expect.stringContaining("T86?date=20261020")]);
     expect(again.pending).toBe(1);
+    // 法人晚到時直接更新金額，保留已算好的座標，歷史資料也不必重新暖機。
+    await db.insert(marketGroups).values({ id: "market", name: "全市場", level: "market" });
+    await db.insert(marketGroupDaily).values({ groupId: "market", tradeDate: "2026-10-20", indexLevel: "100", strength: "101", members: 2, upCount: 0, strongCount: 0, calcVersion: ROTATION.version });
+    await syncMarket(db, async (url: string) => url.includes("T86")
+      ? Response.json(twseInst([["2330", "台積電", "0", "0", "-100", "0", "0", "0", "0", "0", "50", "10", "-40"]]))
+      : fetcher(url), { today: "2026-10-20", pauseMs: 0 });
+    expect(await db.select().from(marketGroupDaily)).toMatchObject([{ groupId: "market", indexLevel: "100.000000", strength: "101.0000", foreignNet: -231560, trustNet: 120000, dealerNet: 24000 }]);
   });
 
   it("被證交所擋（回 HTML）就先停，不繼續打", async () => {
@@ -280,6 +301,52 @@ async function seedRotation() {
 describe("族群與強度計算", () => {
   beforeEach(async () => {
     db = await createTestDb();
+  });
+
+  it("轉強必須有五天前的有效座標，五日成交均額也必須完整", async () => {
+    const { days, ids } = await seedRotation();
+    await computeRotation(db, { today: days.at(-1), maxDates: 100 });
+    const { userId } = await createLedger(db);
+    const assetId = ids.get("AAAA")!;
+    const before = days.at(-6)!;
+    await db.execute(sql`update stack.market_daily set strength = 101, momentum = 101, turnover = 100000000 where asset_id = ${assetId}`);
+    await db.execute(sql`update stack.market_daily set strength = 99 where asset_id = ${assetId} and trade_date = ${before}`);
+    const screens = () => getStockScreens(db, userId);
+    expect((await screens()).turning.map((r) => r.symbol)).toContain("AAAA");
+    // 全市場少一筆計算紀錄也不能改變「五個交易日前」的定義。
+    await db.execute(sql`delete from stack.market_group_daily where group_id = 'market' and trade_date = ${days.at(-3)!}`);
+    expect((await screens()).turning.map((r) => r.symbol)).toContain("AAAA");
+    await db.execute(sql`update stack.market_daily set strength = null where asset_id = ${assetId} and trade_date = ${before}`);
+    expect((await screens()).turning).toEqual([]);
+    await db.execute(sql`update stack.market_daily set strength = 99, momentum = null where asset_id = ${assetId} and trade_date = ${before}`);
+    expect((await screens()).turning).toEqual([]);
+    await db.execute(sql`delete from stack.market_daily where asset_id = ${assetId} and trade_date = ${before}`);
+    expect((await screens()).turning).toEqual([]);
+    await db.execute(sql`update stack.market_daily set turnover = null where asset_id = ${assetId} and trade_date = ${days.at(-1)!}`);
+    expect((await screens()).continuing).toEqual([]);
+  });
+
+  it("法人缺值不能當成零，未滿期間及缺報酬不能輸出完整數字", async () => {
+    const { days, ids } = await seedRotation();
+    const last = days.at(-1)!;
+    await db.execute(sql`update stack.market_daily set foreign_net = null where asset_id = ${ids.get("AAAA")!} and trade_date = ${last}`);
+    await computeRotation(db, { today: last, maxDates: 100 });
+    const stored = await db.execute(sql`select foreign_net, trust_net from stack.market_group_daily where group_id = 'theme-test' and trade_date = ${last}`);
+    expect((stored as unknown as { rows: unknown[] }).rows).toEqual([{ foreign_net: null, trust_net: 0 }]);
+    const { userId } = await createLedger(db);
+    const node = (await getRotation(db, userId)).nodes.find((n) => n.id === "theme-test")!;
+    expect(node.flows[5]).toEqual({ foreign: null, trust: 0, dealer: 0 });
+    expect(node.flows[20]).toEqual({ foreign: null, trust: null, dealer: null });
+    const detail = await getGroupDetail(db, userId, "theme-test");
+    expect(detail.flowSeries.at(-1)).toMatchObject({ foreign: null, trust: 0, dealer: 0 });
+    expect(detail.members.find((m) => m.symbol === "AAAA")!.flows20.foreign).toBeNull();
+    await db.execute(sql`update stack.market_group_daily set ret = null where group_id = 'theme-test' and trade_date = ${days.at(-2)!}`);
+    expect((await getRotation(db, userId)).nodes.find((n) => n.id === "theme-test")!.ret5).toBeNull();
+    // 缺少期間中的一天，不能拿更早的一天湊滿五筆。
+    await db.execute(sql`delete from stack.market_group_daily where group_id = 'theme-test' and trade_date = ${days.at(-2)!}`);
+    const incomplete = (await getRotation(db, userId)).nodes.find((n) => n.id === "theme-test")!;
+    expect(incomplete.flows[5].trust).toBeNull();
+    expect(incomplete.ret5).toBeNull();
   });
 
   it("產業與板塊由產業別產生；族群成員名稱對不上的不加入並列出", async () => {

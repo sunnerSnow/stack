@@ -117,9 +117,11 @@ async function neededFrom(db: Db, today: string): Promise<string> {
   return minusDays(first && first < market ? first : market, 10);
 }
 
-export async function syncBenchmarks(db: Db, fetcher: Fetcher = defaultFetcher, opts: { today?: string } = {}): Promise<BenchmarkSyncReport> {
+export async function syncBenchmarks(db: Db, fetcher: Fetcher = defaultFetcher, opts: { today?: string; benchmarkIds?: readonly string[] } = {}): Promise<BenchmarkSyncReport> {
   const today = opts.today ?? todayInTaipei();
-  const defs = await db.select().from(benchmarkDefinitions).where(eq(benchmarkDefinitions.isActive, true)).orderBy(asc(benchmarkDefinitions.sortOrder));
+  const activeDefs = await db.select().from(benchmarkDefinitions).where(eq(benchmarkDefinitions.isActive, true)).orderBy(asc(benchmarkDefinitions.sortOrder));
+  const benchmarkIds = opts.benchmarkIds;
+  const defs = benchmarkIds === undefined ? activeDefs : activeDefs.filter((def) => benchmarkIds.includes(def.id));
   const report: BenchmarkSyncReport = { benchmarks: defs.length, stored: 0, errors: [] };
   if (defs.length === 0) return report;
   const need = await neededFrom(db, today);

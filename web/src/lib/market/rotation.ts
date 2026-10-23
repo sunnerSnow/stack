@@ -12,7 +12,7 @@
  * 需要 60 + 5 個交易日的資料才有座標（暖機），不足時回 null，不補造。
  */
 
-export const ROTATION = { version: "rot-v1", short: 10, long: 60, lag: 5, maxDailyMove: 0.5 } as const;
+export const ROTATION = { version: "rot-v2", short: 10, long: 60, lag: 5, maxDailyMove: 0.5 } as const;
 
 export type Quadrant = "leading" | "weakening" | "lagging" | "improving";
 export const QUADRANT_LABEL: Record<Quadrant, string> = {

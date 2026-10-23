@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { flowValue as flowOf } from "@/lib/market/flows";
 import { QUADRANT_LABEL, type Quadrant } from "@/lib/market/rotation";
-import type { Flow, GroupDetailDto, GroupLevel, RotationDto, RotationNode, StockScreensDto } from "@/lib/services/market";
+import type { GroupDetailDto, GroupLevel, RotationDto, RotationNode, StockScreensDto } from "@/lib/services/market";
 import { BrickWall, WALL_METRICS, type WallMetric } from "./brick-wall";
 import { type ChartNode, DOWN, FLAT, QuadrantChart, UP } from "./quadrant-chart";
 
@@ -20,8 +21,7 @@ type Tool = "strong" | "turning" | "flow" | "volume" | "change";
 
 const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
 const pct = (n: number | null, d = 2) => (n === null ? "—" : `${sign(n)}${Math.abs(n * 100).toFixed(d)}%`);
-const yi = (n: number) => `${sign(Math.round(n / 1e7) / 10)}${Math.abs(n / 1e8).toFixed(1)} 億`;
-const flowOf = (f: Flow, k: FlowKind) => (k === "total" ? f.foreign + f.trust + f.dealer : f[k]);
+const yi = (n: number | null) => n === null ? "資料不足" : `${sign(Math.round(n / 1e7) / 10)}${Math.abs(n / 1e8).toFixed(1)} 億`;
 const fix = (n: number | null, d = 1) => (n === null ? "—" : n.toFixed(d));
 
 function QuadrantTag({ q }: { q: Quadrant | null }) {
@@ -53,7 +53,7 @@ function Seg<T extends string | number>({ value, options, onChange, label }: { v
   );
 }
 
-export function RotationView({ data, level, screens }: { data: RotationDto; level: GroupLevel; screens: StockScreensDto }) {
+export function RotationView({ data, level, screens, signedIn = true }: { data: RotationDto; level: GroupLevel; screens: StockScreensDto; signedIn?: boolean }) {
   // 主畫面是積木牆；象限圖是第二個分頁
   const [view, setView] = useState<"wall" | "quadrant">("wall");
   const [metric, setMetric] = useState<WallMetric>("ret");
@@ -165,14 +165,14 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
   const turningGroups = data.nodes
     .filter((n) => n.quadrant === "leading" && n.trail.length >= 6 && !(n.trail.at(-6)!.strength >= 100 && n.trail.at(-6)!.momentum >= 100))
     .sort((a, b) => (b.momentum ?? 0) - (a.momentum ?? 0));
-  const flowRank = [...data.nodes].sort((a, b) => flowOf(b.flows[period], flowKind) - flowOf(a.flows[period], flowKind));
+  const flowRank = data.nodes.filter((n) => flowOf(n.flows[period], flowKind) !== null).sort((a, b) => flowOf(b.flows[period], flowKind)! - flowOf(a.flows[period], flowKind)!);
   const volumeRank = [...data.nodes].sort((a, b) => b.turnover / Math.max(1, b.turnover5Avg) - a.turnover / Math.max(1, a.turnover5Avg));
   const changeOf = (n: RotationNode) => (period === 1 ? n.ret : period === 5 ? n.ret5 : n.ret20);
   const changeRank = [...data.nodes].sort((a, b) => (changeOf(b) ?? -9) - (changeOf(a) ?? -9));
 
   const table = [...data.nodes].sort((a, b) => {
     const v = (n: RotationNode) =>
-      sortKey === "strength" ? n.strength ?? -1 : sortKey === "momentum" ? n.momentum ?? -1 : sortKey === "ret" ? n.ret ?? -9 : sortKey === "turnover" ? n.turnover5Avg : flowOf(n.flows[5], "total");
+      sortKey === "strength" ? n.strength ?? -1 : sortKey === "momentum" ? n.momentum ?? -1 : sortKey === "ret" ? n.ret ?? -9 : sortKey === "turnover" ? n.turnover5Avg : flowOf(n.flows[5], "total") ?? -Infinity;
     return v(b) - v(a);
   });
 
@@ -217,10 +217,10 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
             ))}
           </div>
         </div>
-        <label className="flex items-center gap-2 pb-1 text-sm font-bold">
+        {signedIn ? <label className="flex items-center gap-2 pb-1 text-sm font-bold">
           <input type="checkbox" checked={onlyHeld} onChange={(e) => setOnlyHeld(e.target.checked)} />
           只看含我持股的{LEVELS.find((l) => l.id === level)!.label}
-        </label>
+        </label> : <Link href="/login" className="pb-1 text-sm font-bold underline">登入後標記我的持股 ↗</Link>}
       </div>
 
       {/* 積木牆（或象限圖）＋右側明細 */}
@@ -464,7 +464,7 @@ export function RotationView({ data, level, screens }: { data: RotationDto; leve
                 <Seg label="期間" value={period} onChange={setPeriod} options={(tool === "change" ? ([1, 5, 20] as Period[]) : PERIODS).map((p) => ({ id: p, label: `${p} 日` }))} />
                 {tool === "flow" ? <Seg label="法人" value={flowKind} onChange={setFlowKind} options={(Object.keys(FLOW_LABEL) as FlowKind[]).map((k) => ({ id: k, label: FLOW_LABEL[k] }))} /> : null}
                 <span className="text-xs text-ink-3">
-                  {tool === "flow" ? "買賣超金額＝每天的買賣超股數 × 當天收盤價，加總" : tool === "volume" ? "今天成交金額 ÷ 近 5 日平均，越大代表量越增" : "等權重報酬（除權息已還原）"}
+                  {tool === "flow" ? "買賣超金額＝每天的買賣超股數 × 當天收盤價，加總；資料不足者不參與排名" : tool === "volume" ? "今天成交金額 ÷ 近 5 日平均，越大代表量越增" : "等權重報酬（除權息已還原）"}
                 </span>
               </div>
               <div className="grid gap-6 lg:grid-cols-2">
@@ -575,17 +575,19 @@ function RankList({ items, title }: { items: { key: string; label: React.ReactNo
 }
 
 /** 族群每天的法人買賣超（合計），正的往上、負的往下 */
-function FlowBars({ series }: { series: { date: string; foreign: number; trust: number; dealer: number }[] }) {
+function FlowBars({ series }: { series: GroupDetailDto["flowSeries"] }) {
   if (series.length === 0) return null;
-  const totals = series.map((s) => s.foreign + s.trust + s.dealer);
-  const max = Math.max(1, ...totals.map(Math.abs));
+  const totals = series.map((s) => flowOf(s, "total"));
+  const max = Math.max(1, ...totals.map((t) => t === null ? 0 : Math.abs(t)));
   const w = 300;
   const h = 64;
   const bw = Math.max(2, w / totals.length - 2);
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="mt-3 h-16 w-full" role="img" aria-label={`近 ${series.length} 日法人買賣超`}>
+      <title>法人買賣超；資料不足的日期留空</title>
       <line x1={0} x2={w} y1={h / 2} y2={h / 2} stroke="rgba(245,240,229,0.3)" />
       {totals.map((t, i) => {
+        if (t === null) return null;
         const bh = (Math.abs(t) / max) * (h / 2 - 2);
         return <rect key={series[i].date} x={i * (w / totals.length) + 1} y={t >= 0 ? h / 2 - bh : h / 2} width={bw} height={Math.max(1, bh)} fill={t >= 0 ? UP : "#5cc99a"} rx={1} />;
       })}

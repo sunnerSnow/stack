@@ -66,3 +66,16 @@ export function withSession<Ctx>(fn: (args: { request: Request; ctx: Ctx; user: 
     }
   };
 }
+
+/** Public market routes may include personal holdings when a session exists. */
+export function withMarketSession<Ctx>(fn: (args: { request: Request; ctx: Ctx; user: SessionUser | null; db: Db }) => Promise<Response>) {
+  return async (request: Request, ctx: Ctx): Promise<Response> => {
+    try {
+      assertSameOrigin(request);
+      const user = await getSessionUser();
+      return await fn({ request, ctx, user, db: await getDb() });
+    } catch (error) {
+      return fail(error);
+    }
+  };
+}

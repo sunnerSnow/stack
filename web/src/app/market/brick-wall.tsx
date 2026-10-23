@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RowBrick, rowBrickGeometry } from "@/components/bricks";
+import { flowValue } from "@/lib/market/flows";
 import { QUADRANT_LABEL, type Quadrant } from "@/lib/market/rotation";
 import type { RotationDto, RotationNode } from "@/lib/services/market";
 
@@ -45,8 +46,8 @@ const QUAD: Record<Quadrant, { color: string; fg: string }> = {
 
 const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
 const pct = (n: number) => `${sign(n)}${Math.abs(n * 100).toFixed(1)}%`;
-const yi = (n: number) => `${sign(n)}${Math.abs(n / 1e8).toFixed(1)} 億`;
-const flowTotal = (n: RotationNode, p: 1 | 5) => n.flows[p].foreign + n.flows[p].trust + n.flows[p].dealer;
+const yi = (n: number | null) => n === null ? "資料不足" : `${sign(n)}${Math.abs(n / 1e8).toFixed(1)} 億`;
+const flowTotal = (n: RotationNode, p: 1 | 5) => flowValue(n.flows[p], "total");
 
 /** 數值 → 方向與深淺（dir 0 是接近 0） */
 function bin(v: number | null, t: [number, number, number]): { dir: 1 | -1 | 0; level: 0 | 1 | 2 } | null {
@@ -92,16 +93,20 @@ function look(n: RotationNode, metric: WallMetric, frameRet: number | null | und
       t = [0.5, 2, 5];
       value = n.strength === null ? "暖機中" : n.strength.toFixed(1);
       break;
-    case "flow1":
-      v = n.turnover > 0 ? flowTotal(n, 1) / n.turnover : null;
+    case "flow1": {
+      const total = flowTotal(n, 1);
+      v = total !== null && n.turnover > 0 ? total / n.turnover : null;
       t = [0.005, 0.02, 0.05];
       value = yi(flowTotal(n, 1));
       break;
-    case "flow5":
-      v = n.turnover5Avg > 0 ? flowTotal(n, 5) / (n.turnover5Avg * 5) : null;
+    }
+    case "flow5": {
+      const total = flowTotal(n, 5);
+      v = total !== null && n.turnover5Avg > 0 ? total / (n.turnover5Avg * 5) : null;
       t = [0.005, 0.02, 0.05];
       value = yi(flowTotal(n, 5));
       break;
+    }
   }
   const b = bin(v, t);
   if (!b || b.dir === 0) return { color: FLAT, fg: NAVY, ghost: null, value };

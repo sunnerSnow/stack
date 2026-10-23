@@ -145,6 +145,29 @@ describe("每天更新基準", () => {
     return { calls, fetcher };
   };
 
+  it("市場初始化只同步指定的兩個台股基準，不抓 VOO", async () => {
+    const { calls, fetcher } = finmind({
+      "TaiwanStockTotalReturnIndex:TAIEX": [{ date: "2026-09-01", price: 100000 }],
+      "TaiwanStockPrice:TAIEX": [{ date: "2026-09-01", close: 46000 }],
+      "USStockPrice:VOO": [{ date: "2026-09-01", Close: 700, Adj_Close: 698 }],
+    });
+    const report = await syncBenchmarks(db, fetcher, { today: "2026-09-01", benchmarkIds: ["taiex", "taiex_tr"] });
+    expect(report).toEqual({ benchmarks: 2, stored: 2, errors: [] });
+    expect(calls).toHaveLength(2);
+    expect(calls.map((url) => new URL(url).searchParams.get("dataset")).sort()).toEqual(["TaiwanStockPrice", "TaiwanStockTotalReturnIndex"]);
+    expect(calls.every((url) => new URL(url).searchParams.get("data_id") === "TAIEX")).toBe(true);
+    expect(await stored("taiex")).toEqual([["2026-09-01", 46000]]);
+    expect(await stored("taiex_tr")).toEqual([["2026-09-01", 100000]]);
+    expect(await stored("voo")).toEqual([]);
+    expect(await stored("voo_tr")).toEqual([]);
+  });
+
+  it("空的基準清單不抓任何資料", async () => {
+    const { calls, fetcher } = finmind({});
+    expect(await syncBenchmarks(db, fetcher, { today: "2026-09-01", benchmarkIds: [] })).toEqual({ benchmarks: 0, stored: 0, errors: [] });
+    expect(calls).toEqual([]);
+  });
+
   it("第一次從「最早一筆交易」與「220 天前」較早者的前 10 天抓到今天；之後只往後抓，VOO 含息版接在已存的值上", async () => {
     await post({ type: "deposit", tradeDate: "2026-09-02", amount: "1000" });
     const data = {
