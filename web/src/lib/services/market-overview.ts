@@ -32,6 +32,10 @@ export interface ReplayValues {
   flow: Flow;
 }
 
+export interface GroupReplayValues extends ReplayValues {
+  quoted: number;
+}
+
 export interface MarketGroupQuote {
   id: string;
   name: string;
@@ -43,7 +47,7 @@ export interface MarketGroupQuote {
   turnover: number | null;
   flow: Flow;
   /** 對齊 replay 的每一天（舊到新）；最後一天就是上面的當日值 */
-  days: ReplayValues[];
+  days: GroupReplayValues[];
 }
 
 export interface MarketOverviewDto {
@@ -122,12 +126,15 @@ export async function getMarketOverview(db: Db, userId: string | null, opts: { d
       .innerJoin(assets, eq(assets.id, marketGroupMembers.assetId)).where(isNull(assets.createdBy));
     const groups: MarketGroupQuote[] = definitions.filter((g) => g.level !== "market").map((g) => {
       const ids = new Set(memberships.filter((m) => m.group === g.id).map((m) => m.asset));
-      const replayed = days.map((d) => valuesOf(d.quotes.filter((r) => ids.has(r.id))));
+      const replayed = days.map((d) => {
+        const quoted = d.quotes.filter((r) => ids.has(r.id));
+        return { ...valuesOf(quoted), quoted: quoted.length };
+      });
       const quotes = today.quotes.filter((r) => ids.has(r.id));
       const ret = quotes.map((r) => today.returns.get(r.id) ?? null);
       return {
         id: g.id, name: g.name, level: g.level as MarketGroupQuote["level"], parentId: g.parentId,
-        members: ids.size, quoted: quotes.length,
+        members: ids.size,
         ret: ret.length && ret.every((v) => v !== null) ? ret.reduce<number>((v, r) => v + r!, 0) / ret.length : null,
         ...replayed.at(-1)!, days: replayed,
       };

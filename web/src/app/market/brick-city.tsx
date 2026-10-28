@@ -5,7 +5,8 @@ import Link from "next/link";
 import "./brick-city.css";
 import { buildCityDistricts, cityScale, OVERVIEW_TOWERS, type CityBuilding, type CityDistrict, type FlowKind } from "@/lib/market/city-layout";
 import { flowValue } from "@/lib/market/flows";
-import type { GroupDetailDto, MemberRow } from "@/lib/services/market";
+import { replayMembers, type FlyoutMember } from "@/lib/market/replay-members";
+import type { GroupDetailDto } from "@/lib/services/market";
 import type { MarketOverviewDto } from "@/lib/services/market-overview";
 import { arrangeIslands, corners, flyoutSpots, grid, ITEM, iso, islandBox, islandSilhouettes, PLATE_H, plates, R, shift, slotAt, union, type Box, type Point, type Rect, type Shape } from "./islands";
 
@@ -250,8 +251,8 @@ const reducedMotion = (onChange: () => void) => {
  * out to the free space beside the island, and anything within reach links up — the nearer, the clearer the
  * line. Once settled only the tower and its stocks stay linked; on close the stocks fold back into the tower.
  */
-function Constellation({ seed, anchor, members, spots, kind, stockId, motion, closing, startAt, onPick }: {
-  seed: number; anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; motion: boolean; closing: boolean;
+function Constellation({ seed, anchor, members, spots, kind, stockId, motion, closing, startAt, pending, onPick }: {
+  seed: number; anchor: Point; members: FlyoutMember[]; pending: boolean; spots: Point[]; kind: FlowKind; stockId: string | null; motion: boolean; closing: boolean;
   /** performance.now() at which the island has reached centre stage; the burst waits for it. */
   startAt: number; onPick: (id: string) => void;
 }) {
@@ -317,7 +318,7 @@ function Constellation({ seed, anchor, members, spots, kind, stockId, motion, cl
         role="button" tabIndex={0} aria-label={`查看個股 ${m.symbol} ${m.name}`} aria-pressed={on} onClick={pick} onKeyDown={press(pick)} data-city-action="true">
         <rect x={-ITEM.w / 2} y="-66" width={ITEM.w} height="56" rx="12" fill={PAPER} stroke={on ? INK : "#D9CDB8"} strokeWidth={on ? 2.5 : 1.5}/>
         <text y="-40" textAnchor="middle" fontSize="25" fontWeight="900" fill={INK}>{m.name}</text>
-        <text y="-18" textAnchor="middle" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol} · {money(value)}</text>
+        <text y="-18" textAnchor="middle" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol} · {pending ? "載入中" : money(value)}</text>
         <g transform="translate(0 18)"><Block w={84} d={84 * R} h={28} fill={on ? SUN : tone(value)} ghost={value === null}/></g>
       </g>;
     })}
@@ -325,7 +326,7 @@ function Constellation({ seed, anchor, members, spots, kind, stockId, motion, cl
 }
 
 /** Diverging bars around zero: buying extends right, selling left. */
-function FlowBars({ rows, activeId, onPick, label }: { rows: { id: string; name: string; sub?: string; value: number | null }[]; activeId?: string | null; onPick: (id: string) => void; label: string }) {
+export function FlowBars({ rows, activeId, onPick, label }: { rows: { id: string; name: string; sub?: string; value: number | null }[]; activeId?: string | null; onPick: (id: string) => void; label: string }) {
   const sorted = [...rows].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
   const pos = Math.max(0, ...rows.map((r) => r.value ?? 0)), neg = Math.max(0, ...rows.map((r) => -(r.value ?? 0)));
   const span = pos + neg || 1, axis = neg / span * 100;
@@ -334,14 +335,14 @@ function FlowBars({ rows, activeId, onPick, label }: { rows: { id: string; name:
     return <button key={r.id} aria-pressed={activeId === r.id} onClick={() => onPick(r.id)}>
       <span className="city-bar-name"><b>{r.name}</b>{r.sub ? <small>{r.sub}</small> : null}</span>
       <span className="city-bar-track" style={{ "--axis": `${axis}%` } as CSSProperties}>
-        {r.value === null ? <i className="is-missing"/> : <i className={r.value >= 0 ? "is-buy" : "is-sell"} style={{ left: `${r.value < 0 ? axis - width : axis}%`, width: `${Math.max(width, .6)}%` }}/>}
+        {r.value === null ? <i className="is-missing"/> : r.value === 0 ? null : <i className={r.value >= 0 ? "is-buy" : "is-sell"} style={{ left: `${r.value < 0 ? axis - width : axis}%`, width: `${Math.max(width, .6)}%` }}/>}
       </span>
       <b className={`city-bar-value ${signClass(r.value)}`}>{money(r.value)}</b>
     </button>;
   })}</div>;
 }
 
-function FlowChart({ series, kind, date }: { series: GroupDetailDto["flowSeries"]; kind: FlowKind; date: string }) {
+export function FlowChart({ series, kind, date }: { series: GroupDetailDto["flowSeries"]; kind: FlowKind; date: string }) {
   const recent = series.filter((r) => r.date <= date).slice(-20);
   if (!recent.length) return <p className="city-caption">法人每日紀錄仍在累積。</p>;
   const values = recent.map((r) => flowValue(r, kind));
@@ -351,7 +352,7 @@ function FlowChart({ series, kind, date }: { series: GroupDetailDto["flowSeries"
     <line x1="0" x2={W} y1={H / 2} y2={H / 2} stroke="#C9BFAE"/>
     {values.map((v, i) => {
       const h = v === null ? 0 : Math.max(1, Math.abs(v) / max * (H / 2 - 3));
-      return v === null ? <rect key={recent[i].date} x={i * bw + bw * .2} width={bw * .6} y={H / 2 - 1} height="2" fill={MISSING}/>
+      return v === 0 ? null : v === null ? <rect key={recent[i].date} x={i * bw + bw * .2} width={bw * .6} y={H / 2 - 1} height="2" fill={MISSING}/>
         : <rect key={recent[i].date} x={i * bw + bw * .15} width={bw * .7} y={v >= 0 ? H / 2 - h : H / 2} height={h} fill={v >= 0 ? BUY : SEA} stroke={recent[i].date === date ? INK : "none"} strokeWidth="1.5"><title>{`${recent[i].date} ${money(v)}`}</title></rect>;
     })}
     <text x={W + 9} y="10" className="city-chart-axis">+</text><text x={W + 8} y={H / 2 + 4} className="city-chart-axis">0</text><text x={W + 9} y={H - 3} className="city-chart-axis">−</text>
@@ -400,7 +401,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const members = useMemo(() => [...(detail?.members ?? [])].sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1)), [detail]);
   // While another replay day loads, the opened group keeps its previous stocks instead of folding and reopening.
   const earlier = response?.key.startsWith(`${selectedId}:`) ? response.data : undefined;
-  const flyout = useMemo(() => [...((detail ?? earlier)?.members ?? [])].sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1)), [detail, earlier]);
+  const flyout = useMemo(() => replayMembers(selectedId, date, detail, earlier), [selectedId, date, detail, earlier]);
   const reduced = useSyncExternalStore(reducedMotion, () => window.matchMedia("(prefers-reduced-motion: reduce)").matches, () => false);
   const motion = animated && !reduced;
   const selectedStock = members.find((m) => m.assetId === stockId);
@@ -572,6 +573,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
             <select aria-label="積木依哪個法人的買賣超" value={kind} onChange={(e) => setKind(e.target.value as FlowKind)}>{KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           </label>
         </div>
+        {overview.replay.length <= 1 ? <div className="city-timeline-tools"><button type="button" aria-pressed={animated} onClick={() => setAnimated(!animated)}>動畫{animated ? "開" : "關"}</button></div> : null}
         {overview.replay.length ? <label className="city-date">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4z M4 10h16 M8 3v5 M16 3v5 M8 14h2 M12 14h2 M16 14h2 M8 17h2 M12 17h2" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
           <select aria-label="資料日期" value={step} onChange={(e) => jump(Number(e.target.value))}>{overview.replay.map((d, i) => <option key={d.date} value={i}>{i === last ? "收盤" : "回放"} {d.date}</option>)}</select>
@@ -609,7 +611,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
                 </g>;
               })}
               {selectedId && anchor ? (flyout.length && !failed
-                ? <Constellation key={selectedId} seed={hash(selectedId)} anchor={anchor} members={flyout} spots={spots} kind={kind} stockId={stockId} motion={motion} closing={closing} startAt={movedAt + MOVE} onPick={setStockId}/>
+                ? <Constellation key={selectedId} seed={hash(selectedId)} anchor={anchor} members={flyout} spots={spots} kind={kind} stockId={stockId} motion={motion} closing={closing} startAt={movedAt + MOVE} pending={!detail} onPick={setStockId}/>
                 : statusAt ? <text x={statusAt.x} y={statusAt.y} textAnchor="middle" className="city-flyout-status">{failed ? "資料讀取失敗，請於右側重試" : !detail ? "正在拆開成分股…" : "目前沒有成分股資料"}</text> : null) : null}
             </g>
           </svg> : <div className="city-empty">尚未取得市場行情，資料同步後將自動建立積木城市。</div>}

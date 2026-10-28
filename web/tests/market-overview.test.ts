@@ -79,13 +79,22 @@ describe("公開市場行情", () => {
     expect(overview.replay[0]).toMatchObject({ index: { value: "19000.0000000000", change: null }, turnover: null, flow: { foreign: null, trust: null, dealer: null }, upCount: 0, downCount: 0 });
     expect(overview.replay[1].index!.change).toBeCloseTo(20000 / 19000 - 1, 12);
     expect(overview.replay[2]).toMatchObject({ index: { value: "20000.0000000000", change: 0 }, turnover: 200_000_000, flow: overview.flow, upCount: 1, downCount: 1, unchangedCount: 0 });
-    expect(overview.groups[0].days).toEqual([
+    expect(overview.groups[0].days.map(({ turnover, flow }) => ({ turnover, flow }))).toEqual([
       { turnover: null, flow: { foreign: null, trust: null, dealer: null } },
       { turnover: 200_000_000, flow: { foreign: null, trust: 0, dealer: 0 } },
       { turnover: 200_000_000, flow: { foreign: 1100, trust: 0, dealer: 0 } },
     ]);
-    expect(overview.groups[0].days.at(-1)).toEqual({ turnover: overview.groups[0].turnover, flow: overview.groups[0].flow });
+    expect(overview.groups[0].days.at(-1)).toEqual({ turnover: overview.groups[0].turnover, flow: overview.groups[0].flow, quoted: overview.groups[0].quoted });
     const detail = await getGroupDetail(db, null, "theme-test");
     expect(detail.members.find((m) => m.symbol === "TESTA")!.flow).toEqual({ foreign: 1100, trust: 0, dealer: 0 });
+  });
+
+  it("回放每天的有行情家數不沿用最新日", async () => {
+    const rows = await quotes();
+    await db.insert(benchmarkPrices).values({ benchmarkId: "taiex", priceDate: "2026-10-20", value: "19000" });
+    await db.execute(sql`delete from stack.market_daily where asset_id = ${rows[1].id} and trade_date = '2026-10-21'`);
+    const overview = await getMarketOverview(db, null);
+    expect(overview.groups[0].days.map((d) => d.quoted)).toEqual([0, 1, 2]);
+    expect(overview.groups[0].quoted).toBe(2);
   });
 });
