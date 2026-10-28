@@ -7,14 +7,14 @@ import { buildCityDistricts, cityScale, OVERVIEW_TOWERS, type CityBuilding, type
 import { flowValue } from "@/lib/market/flows";
 import type { GroupDetailDto, MemberRow } from "@/lib/services/market";
 import type { MarketOverviewDto } from "@/lib/services/market-overview";
-import { arrangeIslands, corners, flyoutSpots, grid, ITEM, iso, islandBox, islandSilhouettes, PLATE_H, plates, R, shift, silhouette, slotAt, union, type Box, type Point, type Rect, type Shape } from "./islands";
+import { arrangeIslands, corners, flyoutSpots, grid, ITEM, iso, islandBox, islandSilhouettes, PLATE_H, plates, R, shift, slotAt, union, type Box, type Point, type Rect, type Shape } from "./islands";
 
 const INK = "#173451", SUN = "#F5D548", SEA = "#187F7C", CREAM = "#F5F0E5", PAPER = "#FFFDF8";
 const BUY = "#D9534F", BUY_LT = "#F2A79E", SEA_LT = "#8ED6CF", MISSING = "#C9D0D8", TREE = "#5E8C61", ACTIVE_GROUND = "#F8E7A0", TERRACE_GROUND = "#EFE5CF";
-const SLOT = 130, FOCUS_SLOT = 190, LAYER = 28, PAGE = 9, TOWER_ROOM = 90;
-/** The market square in the middle: its footprint, and its screen bounds with the index line and flag. */
+const SLOT = 130, LAYER = 28, PAGE = 9, TOWER_ROOM = 90, MOVE = 700, MARKET = "market";
+type Place = Point & { s: number; back: boolean };
+/** The market square in the middle, and its screen bounds with the index line and flag. */
 const PLAZA = 430;
-const HUB_RECT: Rect = { s0: -PLAZA / 2, s1: PLAZA / 2, t0: -PLAZA / 2, t1: PLAZA / 2 };
 const HUB: Box = { x0: -PLAZA / 2 - 6, y0: -PLAZA * R / 2 - 40, x1: PLAZA / 2 + 6, y1: PLAZA * R / 2 + 50 };
 const KINDS = [["total", "合計"], ["foreign", "外資"], ["trust", "投信"], ["dealer", "自營商"]] as const;
 const NO_FLOW = { foreign: null, trust: null, dealer: null };
@@ -243,24 +243,26 @@ const reducedMotion = (onChange: () => void) => {
  * out to the free space beside the island, and anything within reach links up — the nearer, the clearer the
  * line. Once settled only the tower and its stocks stay linked; on close the stocks fold back into the tower.
  */
-function Constellation({ seed, anchor, members, spots, kind, stockId, motion, closing, onPick }: {
-  seed: number; anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; motion: boolean; closing: boolean; onPick: (id: string) => void;
+function Constellation({ seed, anchor, members, spots, kind, stockId, motion, closing, startAt, onPick }: {
+  seed: number; anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; motion: boolean; closing: boolean;
+  /** performance.now() at which the island has reached centre stage; the burst waits for it. */
+  startAt: number; onPick: (id: string) => void;
 }) {
   const settled = BURST + STAGGER * spots.length;
   const [elapsed, setElapsed] = useState(0);
   const [folding, setFolding] = useState(0);
   useEffect(() => {
     if (!motion) return;
-    const begin = performance.now();
+    const begin = closing ? performance.now() : Math.max(performance.now(), startAt);
     let frame = 0;
     const tick = (now: number) => {
       const time = now - begin;
-      if (closing) setFolding(Math.min(1, time / COLLAPSE)); else setElapsed(time);
+      if (closing) setFolding(Math.min(1, time / COLLAPSE)); else setElapsed(Math.max(0, time));
       if (time < (closing ? COLLAPSE : settled)) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [motion, closing, settled]);
+  }, [motion, closing, settled, startAt]);
   const sparks = useMemo(() => {
     const next = seeded(seed);
     return Array.from({ length: 26 }, () => ({ angle: next() * Math.PI * 2, reach: 70 + next() * 200, size: 1.8 + next() * 2, life: BURST * (.6 + next() * .4), tint: next() }));
@@ -298,7 +300,7 @@ function Constellation({ seed, anchor, members, spots, kind, stockId, motion, cl
     <g aria-hidden="true">
       {links.map((l, i) => <line key={i} x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} stroke={INK} strokeOpacity={l.alpha} strokeWidth={l.width} strokeLinecap="round"/>)}
       {dust.map((k, i) => <circle key={i} cx={k.x} cy={k.y} r={k.size} fill={k.tint < .5 ? INK : k.tint < .8 ? SEA : SUN} fillOpacity={k.alpha} stroke={k.tint >= .8 ? INK : "none"} strokeOpacity={k.alpha * .6}/>)}
-      <circle cx={anchor.x} cy={anchor.y} r="7" fill={SUN} stroke={INK} strokeWidth="2" opacity={1 - fold}/>
+      {t > 0 ? <circle cx={anchor.x} cy={anchor.y} r="7" fill={SUN} stroke={INK} strokeWidth="2" opacity={1 - fold}/> : null}
     </g>
     {bricks.map(({ m, p, s, x, y }) => {
       const value = flowValue(m.flow, kind);
@@ -357,6 +359,9 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [focus, setFocus] = useState<string | null>(null);
+  // The focus the draw order has caught up with, and when the last island set off for the middle.
+  const [stackFocus, setStackFocus] = useState<string | null>(null);
+  const [movedAt, setMovedAt] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [stockId, setStockId] = useState<string | null>(null);
@@ -396,7 +401,6 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const visibleDistrict = focused ? { ...focused, groups: focused.groups.slice(page * PAGE, page * PAGE + PAGE) } : null;
   const overviewDistricts = districts.map((d) => ({ ...d, groups: d.groups.slice(0, OVERVIEW_TOWERS) }));
   const focusIsland = focused ? islands.get(focused.id) : undefined;
-  const focusShape: Shape | null = focusIsland && visibleDistrict ? { ...focusIsland.shape, ...grid(focused!.groups.length > PAGE ? PAGE : visibleDistrict.groups.length, focusIsland.shape.cols < focusIsland.shape.rows), slot: FOCUS_SLOT } : null;
 
   // Each island's outline including its tallest tower on any replayed day, so playback never reframes the city.
   const outlines = useMemo(() => {
@@ -415,28 +419,59 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
       return [island.id, { box: shift({ ...box, y0: top }, island.at), room: box.y0 - top }];
     }));
   }, [overview.groups, overview.replay, level, kind, scale, islands]);
-  const frame: Box = focusShape
-    ? (() => { const b = islandBox(focusShape, 6 * LAYER + 60); return { x0: b.x0 - 330, y0: b.y0 - 10, x1: b.x1 + 330, y1: b.y1 + 40 }; })()
-    : (() => { const b = union([HUB, ...[...outlines.values()].map((o) => o.box)]); return { x0: b.x0 - 130, y0: b.y0 - 20, x1: b.x1 + 130, y1: b.y1 + 50 }; })();
+  // One frame for every state, so opening an island moves blocks around instead of cutting to another view.
+  const frame: Box = (() => { const b = union([HUB, ...[...outlines.values()].map((o) => o.box)]); return { x0: b.x0 - 130, y0: b.y0 - 20, x1: b.x1 + 130, y1: b.y1 + 50 }; })();
   const cityViewBox = `${Math.floor(frame.x0)} ${Math.floor(frame.y0)} ${Math.ceil(frame.x1 - frame.x0)} ${Math.ceil(frame.y1 - frame.y0)}`;
 
-  // Where the selected tower stands, and the free space beside its island for the stocks to fly out to.
-  const host = visibleDistrict ?? overviewDistricts.find((d) => d.groups.some((b) => b.id === selectedId));
-  const hostIsland = host ? islands.get(host.id) : undefined;
-  const hostIndex = host ? host.groups.findIndex((b) => b.id === selectedId) : -1;
-  const hostShape = focusShape ?? hostIsland?.shape;
-  const origin = focusShape ? { x: 0, y: 0 } : hostIsland?.at;
-  const anchor = host && hostShape && origin && hostIndex >= 0
-    ? { x: origin.x + slotAt(hostShape, hostIndex).x, y: origin.y + slotAt(hostShape, hostIndex).y - 5 - towerHeight(host.groups[hostIndex]) } : null;
-  const spots = anchor && hostIsland && hostShape ? flyoutSpots(
-    focusShape ? islandBox(focusShape, 6 * LAYER + 30) : outlines.get(hostIsland.id)!.box,
-    focusShape ? islandSilhouettes(focusShape, { x: 0, y: 0 }, 6 * LAYER + 40)
-      : [silhouette(HUB_RECT, { x: 0, y: 0 }, 110), ...[...islands.values()].flatMap((island) => islandSilhouettes(island.shape, island.at, outlines.get(island.id)!.room))],
-    // Keep clear of the breadcrumb that floats over the top-left of the scene.
-    { ...frame, y0: frame.y0 + 50 },
-    focusShape ? { x: Math.cos(hostIsland.address.angle * Math.PI / 180), y: Math.sin(hostIsland.address.angle * Math.PI / 180) } : hostIsland.at,
-    Math.min(4, flyout.length || 4),
-  ) : [];
+  // The stage. On the ring every block stands at its own place; once an island is opened it takes the market
+  // square's place as the protagonist, enlarged, and the rest — square included — step back into a row behind it.
+  const stageFor = (lead: string | null) => {
+    const stage = new Map<string, Place>();
+    const hero = lead ? islands.get(lead) : undefined;
+    if (!hero) {
+      for (const island of islands.values()) stage.set(island.id, { ...island.at, s: 1, back: false });
+      stage.set(MARKET, { x: 0, y: 0, s: 1, back: false });
+      return stage;
+    }
+    const rel = shift(outlines.get(hero.id)!.box, { x: -hero.at.x, y: -hero.at.y });
+    const room = { x0: frame.x0 + 60, x1: frame.x1 - 60, y0: frame.y0 + 215, y1: frame.y1 - 30 };
+    const s = Math.max(1, Math.min(2.4, (room.x1 - room.x0) * .6 / (rel.x1 - rel.x0), (room.y1 - room.y0) / (rel.y1 - rel.y0)));
+    stage.set(hero.id, { x: -s * (rel.x0 + rel.x1) / 2, y: (room.y0 + room.y1) / 2 - s * (rel.y0 + rel.y1) / 2, s, back: false });
+    const rest = [...[...islands.values()].filter((i) => i.id !== hero.id).map((i) => ({ id: i.id, x: i.at.x, s: .42 })), { id: MARKET, x: 0, s: .5 }].sort((a, b) => a.x - b.x);
+    rest.forEach((item, i) => {
+      const u = (i + .5) / rest.length;
+      stage.set(item.id, { x: frame.x0 + 150 + u * (frame.x1 - frame.x0 - 300), y: frame.y0 + 125 + 46 * (2 * u - 1) ** 2, s: item.s, back: true });
+    });
+    return stage;
+  };
+  const places = stageFor(focusIsland?.id ?? null);
+  // Draw order follows the stage only once blocks have arrived (stackFocus lags behind focus): moving an
+  // element in the DOM mid-way would cut its transition short.
+  const settledStage = stageFor(stackFocus && islands.has(stackFocus) ? stackFocus : null);
+  const order = [...settledStage].sort(([idA, a], [idB, b]) => (idA === stackFocus ? 1 : 0) - (idB === stackFocus ? 1 : 0) || a.y - b.y || a.x - b.x).map(([id]) => id);
+
+  // Where the selected tower stands on the protagonist, and the free space beside it for the stocks to fly out to.
+  const place = focusIsland ? places.get(focusIsland.id)! : null;
+  const onStage = (p: Point) => place ? { x: place.x + place.s * p.x, y: place.y + place.s * p.y } : p;
+  const hostIndex = visibleDistrict ? visibleDistrict.groups.findIndex((b) => b.id === selectedId) : -1;
+  const anchor = focusIsland && visibleDistrict && hostIndex >= 0
+    ? onStage({ x: slotAt(focusIsland.shape, hostIndex).x, y: slotAt(focusIsland.shape, hostIndex).y - 5 - towerHeight(visibleDistrict.groups[hostIndex]) }) : null;
+  const spots = anchor && focusIsland ? (() => {
+    const rel = shift(outlines.get(focusIsland.id)!.box, { x: -focusIsland.at.x, y: -focusIsland.at.y });
+    const [a, b] = [onStage({ x: rel.x0, y: rel.y0 }), onStage({ x: rel.x1, y: rel.y1 })];
+    return flyoutSpots({ x0: a.x, y0: a.y, x1: b.x, y1: b.y },
+      islandSilhouettes(focusIsland.shape, { x: 0, y: 0 }, outlines.get(focusIsland.id)!.room).map((poly) => poly.map(onStage)),
+      // Keep clear of the breadcrumb floating over the top-left of the scene.
+      { ...frame, y0: frame.y0 + 50 },
+      { x: Math.cos(focusIsland.address.angle * Math.PI / 180), y: Math.sin(focusIsland.address.angle * Math.PI / 180) },
+      Math.min(4, flyout.length || 4));
+  })() : [];
+
+  useEffect(() => {
+    if (focus === stackFocus) return;
+    const timer = setTimeout(() => setStackFocus(focus), motion ? MOVE : 0);
+    return () => clearTimeout(timer);
+  }, [focus, stackFocus, motion]);
 
   useEffect(() => {
     if (!selectedId || !date) return;
@@ -465,13 +500,16 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
     else { setSelectedId(null); setStockId(null); }
   }
   function reset() { setClosing(false); setFocus(null); setSelectedId(null); setStockId(null); setPage(0); setQuery(""); setView({ x: 0, y: 0, scale: 1 }); }
-  function focusDistrict(id: string) { setClosing(false); setFocus(id); setSelectedId(null); setStockId(null); setPage(0); setQuery(""); setView({ x: 0, y: 0, scale: 1 }); }
+  function focusDistrict(id: string) {
+    if (id !== focus) setMovedAt(performance.now());
+    setClosing(false); setFocus(id); setSelectedId(null); setStockId(null); setPage(0); setQuery(""); setView({ x: 0, y: 0, scale: 1 });
+  }
   function pick(id: string) {
     setClosing(false); setStockId(null);
-    // Select in place when the tower stands in the overview; otherwise open its district at the right page.
+    // A group always opens on its island at centre stage, on the page that holds it.
     const home = buildCityDistricts(groups, level, null, id).find((d) => d.groups.some((b) => b.id === id));
     if (!home) return;
-    if (!focus && home.groups.findIndex((b) => b.id === id) < OVERVIEW_TOWERS) { setSelectedId(id); return; }
+    if (home.id !== focus) setMovedAt(performance.now());
     const full = buildCityDistricts(groups, level, home.id, id).find((d) => d.id === home.id)!;
     setPage(Math.floor(full.groups.findIndex((b) => b.id === id) / PAGE)); setFocus(home.id); setSelectedId(id); setView({ x: 0, y: 0, scale: 1 });
   }
@@ -494,7 +532,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const levelName = level === "theme" ? "族群" : "產業";
   const statusAt = spots.length ? { x: spots.reduce((s, p) => s + p.x, 0) / spots.length, y: spots.reduce((s, p) => s + p.y, 0) / spots.length } : null;
 
-  return <section className="brick-city" aria-label="市場積木城市" onKeyDown={(e) => { if (e.key === "Escape") { if (selectedId) closeGroup(); else reset(); } }}>
+  return <section className={`brick-city ${motion ? "" : "city-still"}`} aria-label="市場積木城市" onKeyDown={(e) => { if (e.key === "Escape") { if (selectedId) closeGroup(); else reset(); } }}>
     <header className="city-head">
       <div className="city-title">
         <h1>立體積木城市</h1>
@@ -529,18 +567,22 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
               {[...GROUNDS, INK].map((g) => <StudPattern key={g} id={studsId(g)} fill={g === INK ? "#2B4C70" : g}/>)}
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-              {!focused ? <>
-                {overviewDistricts.map((d) => <Trail key={`trail:${d.id}`} to={islands.get(d.id)!.at} bend={hash(d.id) % 2 ? .08 : -.08}/>)}
-                {[...overviewDistricts.map((d) => ({ d, ...islands.get(d.id)!.at })), { d: null, x: 0, y: 0 }].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => p.d
-                  ? <g key={p.d.id} transform={`translate(${p.x} ${p.y})`}>
-                    <IslandView district={p.d} shape={islands.get(p.d.id)!.shape} address={islands.get(p.d.id)!.address} selectedId={selectedId} onFocus={() => focusDistrict(p.d!.id)} onPick={pick}
-                      note={p.d.totalGroups > p.d.groups.length ? `${p.d.groups.length}/${p.d.totalGroups} 群 ›` : `${p.d.totalGroups} 群 ›`}/>
-                  </g>
-                  : <Plaza key="market" value={day?.index?.value} change={day?.index?.change ?? null} onClick={reset}/>)}
-              </> : visibleDistrict && focusShape && focusIsland ? <IslandView district={visibleDistrict} shape={focusShape} address={focusIsland.address} selectedId={selectedId} onFocus={() => focusDistrict(focused.id)} onPick={pick}
-                note={focused.groups.length > PAGE ? `${page * PAGE + 1}–${page * PAGE + visibleDistrict.groups.length} / ${focused.totalGroups} 群` : `${focused.totalGroups} 群`}/> : null}
+              <g className={`city-trails ${focused ? "is-hidden" : ""}`}>{overviewDistricts.map((d) => <Trail key={`trail:${d.id}`} to={islands.get(d.id)!.at} bend={hash(d.id) % 2 ? .08 : -.08}/>)}</g>
+              {order.map((id) => {
+                const p = places.get(id);
+                if (!p) return null;
+                const lead = id === focused?.id;
+                const district = lead ? visibleDistrict : overviewDistricts.find((d) => d.id === id);
+                const island = islands.get(id);
+                return <g key={id} className={`city-place ${p.back ? "is-back" : ""} ${lead ? "city-protagonist" : ""}`} style={{ transform: `translate(${p.x}px, ${p.y}px) scale(${p.s})` }}>
+                  {id === MARKET ? <Plaza value={day?.index?.value} change={day?.index?.change ?? null} onClick={reset}/>
+                    : district && island ? <IslandView district={district} shape={island.shape} address={island.address} selectedId={selectedId} onFocus={() => focusDistrict(id)} onPick={pick}
+                      note={lead && focused.groups.length > PAGE ? `${page * PAGE + 1}–${page * PAGE + district.groups.length} / ${focused.totalGroups} 群`
+                        : district.totalGroups > Math.min(OVERVIEW_TOWERS, district.groups.length) && !lead ? `${Math.min(OVERVIEW_TOWERS, district.groups.length)}/${district.totalGroups} 群 ›` : `${district.totalGroups} 群${lead ? "" : " ›"}`}/> : null}
+                </g>;
+              })}
               {selectedId && anchor ? (flyout.length && !failed
-                ? <Constellation key={selectedId} seed={hash(selectedId)} anchor={anchor} members={flyout} spots={spots} kind={kind} stockId={stockId} motion={motion} closing={closing} onPick={setStockId}/>
+                ? <Constellation key={selectedId} seed={hash(selectedId)} anchor={anchor} members={flyout} spots={spots} kind={kind} stockId={stockId} motion={motion} closing={closing} startAt={movedAt + MOVE} onPick={setStockId}/>
                 : statusAt ? <text x={statusAt.x} y={statusAt.y} textAnchor="middle" className="city-flyout-status">{failed ? "資料讀取失敗，請於右側重試" : !detail ? "正在拆開成分股…" : "目前沒有成分股資料"}</text> : null) : null}
             </g>
           </svg> : <div className="city-empty">尚未取得市場行情，資料同步後將自動建立積木城市。</div>}

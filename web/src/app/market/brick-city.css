@@ -35,8 +35,15 @@
 .city-tower.is-selected{filter:drop-shadow(0 0 6px #f5d548) drop-shadow(0 0 2px #f5d548)}
 .city-plate-glow{filter:drop-shadow(0 0 7px #f5d548)}
 .city-tower-name{font-size:19px;font-weight:900;fill:var(--color-ink);stroke:#fffdf8;stroke-width:5px;paint-order:stroke;stroke-linejoin:round;pointer-events:none;transition:opacity .15s}
-.city-svg:not(.city-svg-focused) .city-tower-name{opacity:0}
-.city-svg:not(.city-svg-focused) .city-tower:is(:hover,:focus-visible,.is-selected) .city-tower-name{opacity:1}
+.city-tower-name{opacity:0}
+.city-protagonist .city-tower-name,.city-tower:is(:hover,:focus-visible,.is-selected) .city-tower-name{opacity:1}
+/* The protagonist is drawn enlarged, so its labels shrink back to a readable size that doesn't collide. */
+.city-protagonist .city-tower-name{font-size:13.5px;stroke-width:4.5px}
+/* Opening an island: it glides to centre stage while the others step back; still when motion is off. */
+.city-place{transition:transform .7s cubic-bezier(.3,.8,.25,1),opacity .5s ease}
+.city-place.is-back{opacity:.5}.city-place.is-back:hover{opacity:.8}
+.city-trails{transition:opacity .4s ease}.city-trails.is-hidden{opacity:0;pointer-events:none}
+.city-still .city-place,.city-still .city-trails{transition:none}
 .city-flyout-status{font-size:20px;font-weight:700;fill:var(--color-ink-2)}
 .city-zoom{position:absolute;right:10px;bottom:12px;display:flex;border:1px solid #cfc4b0;border-radius:8px;overflow:hidden;background:var(--color-paper)}
 .city-zoom button{padding:7px 11px;font-family:var(--font-mono),monospace;font-size:12px;font-weight:700}.city-zoom button+button{border-left:1px solid var(--color-line)}
@@ -116,7 +123,7 @@
   .city-head{flex-direction:column;gap:14px;padding:20px 16px 0}.city-controls{justify-content:flex-start}
   .city-tabs>button,.city-tab-select{min-width:0;height:38px;padding:0 13px;font-size:14px}.city-date{height:38px}
   .city-stage{grid-template-columns:1fr;padding:0 12px}
-  .city-scene{height:270px}.city-scene-wrap:has(.city-svg-focused) .city-scene{height:400px}
+  .city-scene{height:270px}
   .city-breadcrumb{position:static;padding:10px 4px 0}
   .city-mobile-nav{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:12px 4px 0}
   .city-mobile-nav>div{display:flex;flex-wrap:wrap;gap:4px 8px;max-width:170px}.city-mobile-nav small{width:100%;font-size:9px;color:var(--color-ink-2)}
