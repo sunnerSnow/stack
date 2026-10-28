@@ -195,9 +195,18 @@ export interface MemberRow {
   prevStrength: number | null;
   quadrant: Quadrant | null;
   turnover: number | null;
+  /** 當日法人買賣超金額（元） */
+  flow: Flow;
   flows20: Flow;
   trail: { date: string; strength: number; momentum: number; ret: number | null }[];
   held: boolean;
+}
+
+/** 法人買賣超股數換成金額（用當天收盤價） */
+function amounts(r: { close: string | null; foreignNet: number | null; trustNet: number | null; dealerNet: number | null }) {
+  const close = num(r.close);
+  const value = (shares: number | null) => close === null || shares === null ? null : shares * close;
+  return { foreignNet: value(r.foreignNet), trustNet: value(r.trustNet), dealerNet: value(r.dealerNet) };
 }
 
 export interface GroupDetailDto {
@@ -259,11 +268,8 @@ export async function getGroupDetail(db: Db, userId: string | null, groupId: str
         prevStrength: prev ? num(prev.strength) : null,
         quadrant: s !== null && mo !== null ? quadrant(s, mo) : null,
         turnover: today?.turnover ?? null,
-        flows20: sumFlows(series.slice(0, 20).map((r) => {
-          const close = num(r.close);
-          const value = (shares: number | null) => close === null || shares === null ? null : shares * close;
-          return { foreignNet: value(r.foreignNet), trustNet: value(r.trustNet), dealerNet: value(r.dealerNet) };
-        }), 20),
+        flow: sumFlows(today ? [amounts(today)] : [], 1),
+        flows20: sumFlows(series.slice(0, 20).map(amounts), 20),
         trail: series
           .slice(0, TRAIL_DAYS)
           .map((r) => ({ r, prev: series.find((p) => p.tradeDate === dates[dates.indexOf(r.tradeDate) + 1]) }))

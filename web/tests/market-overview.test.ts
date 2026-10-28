@@ -69,4 +69,23 @@ describe("公開市場行情", () => {
     expect(overview.index).toEqual({ date: "2026-10-22", value: "20200.0000000000", change: 0.01 });
     expect(overview.flow).toEqual({ foreign: 1100, trust: 0, dealer: 0 });
   });
+  it("回放逐日用個股行情重算族群成交額與法人，最後一天就是當日；沒有行情的日子保留缺值", async () => {
+    const rows = await quotes();
+    await db.insert(benchmarkPrices).values({ benchmarkId: "taiex", priceDate: "2026-10-20", value: "19000" });
+    await db.execute(sql`update stack.market_daily set foreign_net = null where asset_id = ${rows[1].id} and trade_date = '2026-10-21'`);
+    await db.execute(sql`update stack.market_daily set foreign_net = 10 where asset_id = ${rows[0].id} and trade_date = '2026-10-22'`);
+    const overview = await getMarketOverview(db, null);
+    expect(overview.replay.map((d) => d.date)).toEqual(["2026-10-20", "2026-10-21", "2026-10-22"]);
+    expect(overview.replay[0]).toMatchObject({ index: { value: "19000.0000000000", change: null }, turnover: null, flow: { foreign: null, trust: null, dealer: null }, upCount: 0, downCount: 0 });
+    expect(overview.replay[1].index!.change).toBeCloseTo(20000 / 19000 - 1, 12);
+    expect(overview.replay[2]).toMatchObject({ index: { value: "20000.0000000000", change: 0 }, turnover: 200_000_000, flow: overview.flow, upCount: 1, downCount: 1, unchangedCount: 0 });
+    expect(overview.groups[0].days).toEqual([
+      { turnover: null, flow: { foreign: null, trust: null, dealer: null } },
+      { turnover: 200_000_000, flow: { foreign: null, trust: 0, dealer: 0 } },
+      { turnover: 200_000_000, flow: { foreign: 1100, trust: 0, dealer: 0 } },
+    ]);
+    expect(overview.groups[0].days.at(-1)).toEqual({ turnover: overview.groups[0].turnover, flow: overview.groups[0].flow });
+    const detail = await getGroupDetail(db, null, "theme-test");
+    expect(detail.members.find((m) => m.symbol === "TESTA")!.flow).toEqual({ foreign: 1100, trust: 0, dealer: 0 });
+  });
 });
