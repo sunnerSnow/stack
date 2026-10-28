@@ -7,13 +7,15 @@ import { buildCityDistricts, cityScale, OVERVIEW_TOWERS, type CityBuilding, type
 import { flowValue } from "@/lib/market/flows";
 import type { GroupDetailDto, MemberRow } from "@/lib/services/market";
 import type { MarketOverviewDto } from "@/lib/services/market-overview";
+import { arrangeIslands, corners, flyoutSpots, grid, ITEM, iso, islandBox, islandSilhouettes, PLATE_H, plates, R, shift, silhouette, slotAt, union, type Box, type Point, type Rect, type Shape } from "./islands";
+import { ParticleField } from "./particle-field";
 
 const INK = "#173451", SUN = "#F5D548", SEA = "#187F7C", CREAM = "#F5F0E5", PAPER = "#FFFDF8";
-const BUY = "#D9534F", BUY_LT = "#F2A79E", SEA_LT = "#8ED6CF", MISSING = "#C9D0D8", TREE = "#5E8C61", ACTIVE_GROUND = "#F8E7A0";
-/** Brick depth ÷ width: the city's isometric slope. */
-const R = 0.578;
-const CELL = 520, SLOT = 130, FOCUS_SLOT = 190, LAYER = 28, PAGE = 9;
-const plateOf = (slotSize: number) => slotSize * 3 + 50;
+const BUY = "#D9534F", BUY_LT = "#F2A79E", SEA_LT = "#8ED6CF", MISSING = "#C9D0D8", TREE = "#5E8C61", ACTIVE_GROUND = "#F8E7A0", TERRACE_GROUND = "#EFE5CF";
+const SLOT = 130, FOCUS_SLOT = 190, LAYER = 28, PAGE = 9, TOWER_ROOM = 90;
+/** The market square in the middle: its footprint, and its screen bounds with the index line and flag. */
+const HUB_RECT: Rect = { s0: -155, s1: 155, t0: -155, t1: 155 };
+const HUB: Box = { x0: -160, y0: -100, x1: 160, y1: 125 };
 const KINDS = [["total", "合計"], ["foreign", "外資"], ["trust", "投信"], ["dealer", "自營商"]] as const;
 const NO_FLOW = { foreign: null, trust: null, dealer: null };
 const kindLabel = (kind: FlowKind) => KINDS.find(([k]) => k === kind)![1];
@@ -31,18 +33,6 @@ const press = (fn: () => void) => (e: KeyboardEvent) => { if (e.key === "Enter" 
 /** 紅＝法人買超、海綠＝賣超，幅度在前兩級用淺色；零是奶油白，缺值是灰色虛線。 */
 const tone = (flow: number | null, layers = 6) => flow === null ? MISSING : flow === 0 ? CREAM : flow > 0 ? (layers >= 3 ? BUY : BUY_LT) : (layers >= 3 ? SEA : SEA_LT);
 
-// Fixed category blocks on an isometric grid around the market square; location and ground colour
-// encode categories only. The empty cell to the left of the square is where a group's stocks fly out.
-const ADDRESSES: Record<string, { cell: [number, number]; ground: string; icon: keyof typeof ICONS }> = {
-  "電子科技": { cell: [-1, 0], ground: "#E6E1D3", icon: "chip" },
-  "民生消費": { cell: [0, -1], ground: "#E8DCCB", icon: "bag" },
-  "金融": { cell: [1, -1], ground: "#D8DEE6", icon: "bank" },
-  "生技醫療": { cell: [1, 0], ground: "#D3E3D2", icon: "cross" },
-  "原物料": { cell: [1, 1], ground: "#DDD8C6", icon: "ore" },
-  "工業與運輸": { cell: [0, 1], ground: "#CFDDEA", icon: "ship" },
-  "其他": { cell: [-1, -1], ground: "#E3DED3", icon: "dots" },
-};
-const SPARE: [number, number][] = [[2, -1], [-1, 2], [2, 0], [0, 2], [2, 1], [1, 2]];
 const ICONS = {
   chip: "M8 8h8v8H8z M10 4v4 M14 4v4 M10 16v4 M14 16v4 M4 10h4 M4 14h4 M16 10h4 M16 14h4",
   bag: "M5 9h14l-1.2 11H6.2z M9 9V7a3 3 0 0 1 6 0v2",
@@ -52,27 +42,39 @@ const ICONS = {
   ship: "M3 15h18l-3 5H6z M6 15V9h7v6 M13 12h5v3 M9 9V5",
   dots: "M5 5h5v5H5z M14 5h5v5h-5z M5 14h5v5H5z M14 14h5v5h-5z",
 };
+type Address = { angle: number; reach: number; ground: string; icon: keyof typeof ICONS };
+// Each category has its own bearing and distance from the market square (degrees, 0 = right, clockwise), so
+// the islands form a loose ring rather than a grid. Bearing and ground colour encode category only.
+const ADDRESSES: Record<string, Address> = {
+  "電子科技": { angle: -146, reach: 1, ground: "#E6E1D3", icon: "chip" },
+  "其他": { angle: -88, reach: .82, ground: "#E3DED3", icon: "dots" },
+  "民生消費": { angle: -34, reach: 1.04, ground: "#E8DCCB", icon: "bag" },
+  "金融": { angle: 8, reach: .9, ground: "#D8DEE6", icon: "bank" },
+  "原物料": { angle: 56, reach: 1.02, ground: "#DDD8C6", icon: "ore" },
+  "生技醫療": { angle: 104, reach: .86, ground: "#D3E3D2", icon: "cross" },
+  "工業與運輸": { angle: 158, reach: 1.06, ground: "#CFDDEA", icon: "ship" },
+};
+const SPARE_ANGLES = [205, 250, -190, 290];
 const GROUNDS = [...new Set([...Object.values(ADDRESSES).map((a) => a.ground), CREAM, ACTIVE_GROUND])];
 const studsId = (ground: string) => `city-studs-${ground.slice(1)}`;
-type Address = { cell: [number, number]; ground: string; icon: keyof typeof ICONS };
-
-function addresses(districts: CityDistrict[]) {
-  let spare = 0;
-  return new Map<string, Address>(districts.map((d) => [d.id, ADDRESSES[d.name] ?? { cell: SPARE[spare++ % SPARE.length], ground: CREAM, icon: "dots" }]));
-}
-/** Isometric grid → screen; `size` is one cell's diamond width. */
-const at = ([u, v]: readonly [number, number], size = CELL) => ({ x: (u - v) * size / 2, y: (u + v) * size * R / 2 });
-/** Slot i of a district's 3×3 tower grid, measured from the plate centre. */
-const slot = (i: number, size: number) => at([i % 3 - 1, Math.floor(i / 3) - 1], size);
-const diamond = (w: number) => `${-w / 2},0 0,${-w * R / 2} ${w / 2},0 0,${w * R / 2}`;
+const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const towerHeight = (b: CityBuilding) => b.layers === 0 ? 12 : Math.max(1, b.layers ?? 1) * LAYER;
-/** Hang a district's sign on a front face whose neighbouring cell is empty, so it never covers another block. */
-function signSpot([u, v]: [number, number], taken: Set<string>, plate: number) {
-  const free = (c: [number, number]) => !taken.has(c.join());
-  const { x } = at([u, v]);
-  const left = free([u, v + 1]), right = free([u + 1, v]);
-  const side = left && !right ? -1 : right && !left ? 1 : left && right ? (x < 0 ? -1 : 1) : x < 0 ? -1 : x > 0 ? 1 : 0;
-  return side === 0 ? `translate(0 ${plate * R / 2 + 26}) rotate(-10)` : `translate(${side * plate / 4} ${plate * R / 4 + 22}) rotate(${side * -18})`;
+const diamond = (w: number) => `${-w / 2},0 0,${-w * R / 2} ${w / 2},0 0,${w * R / 2}`;
+const poly = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(" ");
+const inset = (r: Rect, d: number): Rect => ({ s0: r.s0 + d, s1: r.s1 - d, t0: r.t0 + d, t1: r.t1 - d });
+
+type Island = { id: string; address: Address; shape: Shape; at: Point };
+/** Size each island by its towers, turn some of them, put the terrace on the outer side, then place them on the ring. */
+function planIslands(districts: CityDistrict[]): Map<string, Island> {
+  let spare = 0;
+  const entries = districts.map((d) => {
+    const address = ADDRESSES[d.name] ?? { angle: SPARE_ANGLES[spare++ % SPARE_ANGLES.length], reach: 1.1, ground: CREAM, icon: "dots" as const };
+    const seed = hash(d.id), lean = Math.cos(address.angle * Math.PI / 180);
+    const shape: Shape = { ...grid(Math.min(OVERVIEW_TOWERS, d.totalGroups), (seed & 1) === 1), slot: SLOT, terrace: lean < -.2 ? "left" : lean > .2 ? "right" : seed & 2 ? "left" : "right" };
+    return { id: d.id, address, shape, box: islandBox(shape, TOWER_ROOM) };
+  });
+  const placed = arrangeIslands(entries.map((e) => ({ id: e.id, angle: e.address.angle, reach: e.address.reach, box: e.box })), HUB, { x: 540, y: 330 }, 14);
+  return new Map(entries.map((e) => [e.id, { id: e.id, address: e.address, shape: e.shape, at: placed.get(e.id)! }]));
 }
 
 /** A studded isometric brick. Origin is the centre of its top; depth and height are separate. */
@@ -91,6 +93,19 @@ function Block({ w, d, h, fill, studs = true, ghost = false }: { w: number; d: n
       <ellipse cy="-6" rx={w*.085} ry={d*.085} fill={fill}/>
       <ellipse cy="-6" rx={w*.085} ry={d*.085} fill="url(#city-top-light)" stroke="none"/>
     </g>))}
+  </g>;
+}
+
+/** A rectangular slab in the isometric plane; its top sits at y = 0 and its sides drop by h. */
+function Slab({ rect, h, fill }: { rect: Rect; h: number; fill: string }) {
+  const [n, e, s, w] = corners(rect);
+  const down = (p: Point) => ({ x: p.x, y: p.y + h });
+  return <g stroke={INK} strokeWidth="1.5" strokeLinejoin="round">
+    <polygon points={poly([w, s, down(s), down(w)])} fill={fill}/>
+    <polygon points={poly([w, s, down(s), down(w)])} fill={INK} opacity=".18" stroke="none"/>
+    <polygon points={poly([s, e, down(e), down(s)])} fill={fill}/>
+    <polygon points={poly([s, e, down(e), down(s)])} fill={INK} opacity=".32" stroke="none"/>
+    <polygon points={poly([n, e, s, w])} fill={fill}/>
   </g>;
 }
 
@@ -114,7 +129,7 @@ function Tree({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
   </g>;
 }
 
-function Tower({ building, selected, delay, pick }: { building: CityBuilding; selected: boolean; delay: number; pick: () => void }) {
+function Tower({ building, selected, pick }: { building: CityBuilding; selected: boolean; pick: () => void }) {
   const layers = Math.max(1, building.layers ?? 0);
   const w = 74 * building.footprint, d = w * R;
   const h = building.layers === 0 ? 12 : LAYER;
@@ -124,95 +139,107 @@ function Tower({ building, selected, delay, pick }: { building: CityBuilding; se
     <title>{`${building.name} · 法人 ${money(building.flow)} · 成交額 ${money(building.turnover, false)}`}</title>
     <ellipse cy={d * .2} rx={w * .62} ry={d * .42} fill={INK} opacity=".14"/>
     {selected ? <polygon points={diamond(w + 18)} fill="none" stroke={SUN} strokeWidth="5"/> : null}
-    {Array.from({ length: layers }, (_, i) => <g key={i} transform={`translate(0 ${-(i + 1) * h})`}><g className="city-assemble" style={{ animationDelay: `${delay + i * 55}ms` }}>
+    {Array.from({ length: layers }, (_, i) => <g key={i} transform={`translate(0 ${-(i + 1) * h})`}>
       <Block w={w} d={d} h={h} fill={fill} studs={i === layers - 1} ghost={building.flow === null}/>
-    </g></g>)}
+    </g>)}
     <text y={-layers * h - d / 2 - 14} textAnchor="middle" className="city-tower-name">{building.name}</text>
   </g>;
 }
 
-function DistrictSign({ district, icon, note }: { district: CityDistrict; icon: keyof typeof ICONS; note: string }) {
-  const w = 74 + district.name.length * 29, pill = 22 + note.length * 9.5;
+/** The island's low name plate, standing on its terrace so it never hides the towers behind. */
+function Signboard({ name, icon, note }: { name: string; icon: keyof typeof ICONS; note: string }) {
+  const w = 76 + name.length * 29, pill = 22 + note.length * 9.5;
   return <g aria-hidden="true">
-    <rect x={-w / 2} y="-27" width={w} height="54" rx="13" fill={INK} stroke={PAPER} strokeWidth="2.5"/>
-    <rect x={-w / 2 + 5} y="-22" width={w - 10} height="44" rx="10" fill="none" stroke="#35587e" strokeWidth="1.5"/>
-    <path transform={`translate(${-w / 2 + 16} -13) scale(1.1)`} d={ICONS[icon]} fill="none" stroke={CREAM} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-    <text x={-w / 2 + 54} y="10" fill={CREAM} fontSize="29" fontWeight="900">{district.name}</text>
-    <g transform={`translate(${w / 2 - pill + 14} 18)`}>
-      <rect width={pill} height="26" rx="13" fill={SUN} stroke={INK} strokeWidth="2"/>
-      <text x={pill / 2} y="18" textAnchor="middle" fill={INK} fontSize="15" fontWeight="800">{note}</text>
+    <ellipse cy="2" rx={w / 2 - 10} ry="7" fill={INK} opacity=".16"/>
+    {[-1, 1].map((side) => <path key={side} d={`M ${side * (w / 2 - 28)} 2 V -10`} stroke={INK} strokeWidth="5" strokeLinecap="round"/>)}
+    <g transform="translate(0 -34)">
+      <rect x={-w / 2} y="-25" width={w} height="50" rx="12" fill={INK} stroke={PAPER} strokeWidth="2.5"/>
+      <rect x={-w / 2 + 5} y="-20" width={w - 10} height="40" rx="9" fill="none" stroke="#35587e" strokeWidth="1.5"/>
+      <path transform={`translate(${-w / 2 + 15} -13) scale(1.1)`} d={ICONS[icon]} fill="none" stroke={CREAM} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+      <text x={-w / 2 + 52} y="10" fill={CREAM} fontSize="29" fontWeight="900">{name}</text>
+      <g transform={`translate(${w / 2 - pill + 14} 13)`}>
+        <rect width={pill} height="25" rx="12.5" fill={SUN} stroke={INK} strokeWidth="2"/>
+        <text x={pill / 2} y="17.5" textAnchor="middle" fill={INK} fontSize="14.5" fontWeight="800">{note}</text>
+      </g>
     </g>
   </g>;
 }
 
-function District({ district, address, slotSize, selectedId, delay, onFocus, onPick }: {
-  district: CityDistrict; address: Address; slotSize: number; selectedId: string | null; delay: number; onFocus: () => void; onPick: (id: string) => void;
+function IslandView({ district, shape, address, selectedId, note, onFocus, onPick }: {
+  district: CityDistrict; shape: Shape; address: Address; selectedId: string | null; note: string; onFocus: () => void; onPick: (id: string) => void;
 }) {
-  const plate = plateOf(slotSize);
+  const { main, terrace } = plates(shape);
   const active = district.groups.some((b) => b.id === selectedId);
   const ground = active ? ACTIVE_GROUND : address.ground;
-  const items = Array.from({ length: PAGE }, (_, i) => ({ i, building: district.groups[i] as CityBuilding | undefined, ...slot(i, slotSize) }))
+  const outline = [...corners(main), ...corners(terrace)];
+  const x0 = Math.min(...outline.map((p) => p.x)), x1 = Math.max(...outline.map((p) => p.x));
+  const y0 = Math.min(...outline.map((p) => p.y)), y1 = Math.max(...outline.map((p) => p.y));
+  const items = Array.from({ length: shape.cols * shape.rows }, (_, i) => ({ i, building: district.groups[i] as CityBuilding | undefined, ...slotAt(shape, i) }))
     .sort((a, b) => a.y - b.y || a.x - b.x);
+  const deck = { s: (terrace.s0 + terrace.s1) / 2, t: (terrace.t0 + terrace.t1) / 2 };
+  const trees = (shape.terrace === "right" ? [iso(deck.s, terrace.t0 + 30), iso(deck.s, terrace.t1 - 30)] : [iso(terrace.s0 + 30, deck.t), iso(terrace.s1 - 30, deck.t)]);
+  const sign = iso(deck.s, deck.t);
   return <g>
     <g role="button" tabIndex={0} aria-label={`展開 ${district.name}`} onClick={onFocus} onKeyDown={press(onFocus)} data-city-action="true" className="city-base">
-      <ellipse cy={plate * R / 2 + 34} rx={plate / 2 + 14} ry="26" fill={INK} opacity=".08"/>
-      <Block w={plate} d={plate * R} h={34} fill={INK} studs={false}/>
-      <g transform="translate(0 -6)"><Block w={plate - 18} d={(plate - 18) * R} h={6} fill={ground} studs={false}/></g>
-      <polygon transform="translate(0 -6)" points={diamond(plate - 30)} fill={`url(#${studsId(ground)})`}/>
-      {active ? <polygon transform="translate(0 -6)" points={diamond(plate - 10)} fill="none" stroke={SUN} strokeWidth="7" className="city-plate-glow"/> : null}
+      <ellipse cx={(x0 + x1) / 2} cy={y1 + 18} rx={(x1 - x0) * .42} ry={(y1 - y0) * .22} fill={INK} opacity=".07"/>
+      <Slab rect={main} h={PLATE_H} fill={INK}/>
+      <g transform="translate(0 -5)">
+        <Slab rect={inset(main, 9)} h={5} fill={ground}/>
+        <polygon points={poly(corners(inset(main, 16)))} fill={`url(#${studsId(ground)})`}/>
+      </g>
+      <g transform="translate(0 10)">
+        <Slab rect={terrace} h={PLATE_H - 10} fill={INK}/>
+        <g transform="translate(0 -5)"><Slab rect={inset(terrace, 8)} h={5} fill={TERRACE_GROUND}/></g>
+      </g>
+      {active ? <polygon transform="translate(0 -5)" points={poly(corners(inset(main, 4)))} fill="none" stroke={SUN} strokeWidth="7" className="city-plate-glow"/> : null}
     </g>
-    {items.map(({ i, building, x, y }) => <g key={building?.id ?? `tree:${i}`} transform={`translate(${x} ${y - 6})`}>
-      {building ? <Tower building={building} selected={selectedId === building.id} delay={delay + i * 45} pick={() => onPick(building.id)}/>
+    {items.map(({ i, building, x, y }) => <g key={building?.id ?? `tree:${i}`} transform={`translate(${x} ${y - 5})`}>
+      {building ? <Tower building={building} selected={selectedId === building.id} pick={() => onPick(building.id)}/>
         : i % 2 ? <Tree x={0} y={4} s={1.1}/> : <><Tree x={-16} y={-2}/><Tree x={14} y={8} s={.85}/></>}
     </g>)}
+    <g transform="translate(0 5)">{trees.map((p) => <Tree key={`${p.x}:${p.y}`} x={p.x} y={p.y} s={.9}/>)}</g>
+    <g transform={`translate(${sign.x} ${sign.y + 5})`} className="city-district-sign" onClick={onFocus} data-city-action="true">
+      <Signboard name={district.name} icon={address.icon} note={note}/>
+    </g>
   </g>;
 }
 
-function Walkway({ from, to }: { from: [number, number]; to: [number, number] }) {
-  const a = at(from), b = at(to);
-  const half = 36;
-  const off = to[0] !== from[0] ? { x: -half / 2, y: half * R / 2 } : { x: half / 2, y: half * R / 2 };
-  const quad = (dy: number) => [[a.x + off.x, a.y + off.y], [b.x + off.x, b.y + off.y], [b.x - off.x, b.y - off.y], [a.x - off.x, a.y - off.y]].map(([x, y]) => `${x},${y + dy}`).join(" ");
-  return <g aria-hidden="true">
-    <polygon points={quad(30)} fill={INK}/>
-    <polygon points={quad(16)} fill="#EADFC8" stroke={INK} strokeWidth="1.5"/>
-    {Array.from({ length: 13 }, (_, k) => {
-      const t = .2 + k * .05, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t + 16;
-      return <path key={k} d={`M ${x + off.x * .9} ${y + off.y * .9} L ${x - off.x * .9} ${y - off.y * .9}`} stroke="#B5A27F" strokeWidth="2"/>;
-    })}
-  </g>;
+/** A dashed footpath from the market square to an island. */
+function Trail({ to, bend }: { to: Point; bend: number }) {
+  const d = `M 0 0 Q ${to.x / 2 - to.y * bend} ${to.y / 2 + to.x * bend} ${to.x} ${to.y}`;
+  return <g aria-hidden="true"><path d={d} className="city-trail"/><path d={d} className="city-trail-dash"/></g>;
 }
 
 function Plaza({ value, change, onClick }: { value: string | undefined; change: number | null; onClick: () => void }) {
   return <g className="city-market" role="button" tabIndex={0} aria-label="查看大盤摘要" onClick={onClick} onKeyDown={press(onClick)} data-city-action="true">
-    <ellipse cy="122" rx="185" ry="28" fill={INK} opacity=".1"/>
-    <Block w={340} d={340 * R} h={30} fill={INK} studs={false}/>
-    <polygon points={diamond(322)} fill={`url(#${studsId(INK)})`}/>
-    {[[-130, 4], [130, 4], [0, -74], [-62, 60], [64, 60]].map(([x, y]) => <g key={`${x}:${y}`} transform={`translate(${x} ${y - 12})`}><Block w={36} d={36 * R} h={12} fill={SUN}/></g>)}
-    <text y="-4" textAnchor="middle" fill={CREAM} stroke="#0d2136" strokeWidth="9" paintOrder="stroke" fontSize="60" fontWeight="900" letterSpacing="4">大盤</text>
-    <text y="36" textAnchor="middle" fill={SUN} fontSize="22" fontWeight="700" className="city-mono">{indexText(value)} · {pct(change)}</text>
+    <ellipse cy="112" rx="170" ry="26" fill={INK} opacity=".1"/>
+    <Block w={310} d={310 * R} h={30} fill={INK} studs={false}/>
+    <polygon points={diamond(292)} fill={`url(#${studsId(INK)})`}/>
+    {[[-118, 4], [118, 4], [0, -66], [-56, 54], [58, 54]].map(([x, y]) => <g key={`${x}:${y}`} transform={`translate(${x} ${y - 12})`}><Block w={34} d={34 * R} h={12} fill={SUN}/></g>)}
+    <path d="M 82 -30 V -96" stroke={INK} strokeWidth="3" strokeLinecap="round"/><path d="M 84 -96 L 116 -86 L 84 -76 Z" fill={SUN} stroke={INK} strokeWidth="2" strokeLinejoin="round"/>
+    <text y="-4" textAnchor="middle" fill={CREAM} stroke="#0d2136" strokeWidth="9" paintOrder="stroke" fontSize="56" fontWeight="900" letterSpacing="4">大盤</text>
+    <text y="34" textAnchor="middle" fill={SUN} fontSize="21" fontWeight="700" className="city-mono">{indexText(value)} · {pct(change)}</text>
   </g>;
 }
 
-function Flyout({ anchor, members, kind, stockId, x, onPick }: { anchor: { x: number; y: number }; members: MemberRow[]; kind: FlowKind; stockId: string | null; x: number; onPick: (id: string) => void }) {
-  const shown = members.slice(0, 4).map((m, i, list) => ({ m, y: (i - (list.length - 1) / 2) * 118 }));
-  const bx = x + 228;
+function Flyout({ anchor, members, spots, kind, stockId, onPick }: { anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; onPick: (id: string) => void }) {
+  const shown = members.slice(0, spots.length).map((m, i) => ({ m, p: spots[i] }));
   return <g className="city-flyout">
-    {shown.map(({ m, y }) => {
-      const d = `M ${bx + 30} ${y - 8} C ${bx + 150} ${y - 8}, ${anchor.x - 170} ${anchor.y - 30}, ${anchor.x - 14} ${anchor.y}`;
+    {shown.map(({ m, p }) => {
+      const d = `M ${p.x} ${p.y - 60} Q ${(p.x + anchor.x) / 2} ${Math.min(p.y, anchor.y) - 110} ${anchor.x} ${anchor.y - 4}`;
       return <g key={`path:${m.assetId}`} aria-hidden="true"><path d={d} className="city-flyout-glow"/><path d={d} className="city-flyout-path" markerEnd="url(#city-arrow)"/></g>;
     })}
-    {shown.map(({ m, y }, i) => {
+    {shown.map(({ m, p }, i) => {
       const value = flowValue(m.flow, kind);
       const pick = () => onPick(m.assetId);
-      return <g key={m.assetId} transform={`translate(${x} ${y})`}>
-        <g className="city-stock city-fly" style={{ "--dx": `${anchor.x - x}px`, "--dy": `${anchor.y - y}px`, animationDelay: `${i * 90}ms` } as CSSProperties}
-          role="button" tabIndex={0} aria-label={`查看個股 ${m.symbol} ${m.name}`} aria-pressed={stockId === m.assetId} onClick={pick} onKeyDown={press(pick)} data-city-action="true">
-          <rect y="-32" width="156" height="64" rx="11" fill={PAPER} stroke={stockId === m.assetId ? INK : "#D9CDB8"} strokeWidth={stockId === m.assetId ? 2.5 : 1.5}/>
-          <text x="16" y="-4" fontSize="23" fontWeight="900" fill={INK}>{m.name}</text>
-          <text x="16" y="20" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol}</text>
-          <path d={`M 156 0 H ${bx - x - 40}`} stroke="#8A9AAB" strokeWidth="1.5" strokeDasharray="2 4"/>
-          <g transform={`translate(${bx - x} -12)`}><Block w={70} d={70 * R} h={24} fill={stockId === m.assetId ? SUN : tone(value)} ghost={value === null}/></g>
+      const on = stockId === m.assetId;
+      return <g key={m.assetId} transform={`translate(${p.x} ${p.y})`}>
+        <g className="city-stock city-fly" style={{ "--dx": `${anchor.x - p.x}px`, "--dy": `${anchor.y - p.y}px`, animationDelay: `${i * 90}ms` } as CSSProperties}
+          role="button" tabIndex={0} aria-label={`查看個股 ${m.symbol} ${m.name}`} aria-pressed={on} onClick={pick} onKeyDown={press(pick)} data-city-action="true">
+          <rect x={-ITEM.w / 2} y="8" width={ITEM.w} height="60" rx="12" fill={PAPER} stroke={on ? INK : "#D9CDB8"} strokeWidth={on ? 2.5 : 1.5}/>
+          <text y="35" textAnchor="middle" fontSize="25" fontWeight="900" fill={INK}>{m.name}</text>
+          <text y="58" textAnchor="middle" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol} · {money(value)}</text>
+          <g transform="translate(0 -34)"><Block w={84} d={84 * R} h={28} fill={on ? SUN : tone(value)} ghost={value === null}/></g>
         </g>
       </g>;
     })}
@@ -280,7 +307,8 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const groups = useMemo(() => overview.groups.map((g) => g.days[step] ? { ...g, ...g.days[step], rank: g.turnover } : g), [overview.groups, step]);
   const scale = useMemo(() => cityScale(overview.groups.flatMap((g) => g.days.length ? g.days.map((d) => ({ ...g, ...d })) : [g]), level, kind), [overview.groups, level, kind]);
   const districts = useMemo(() => buildCityDistricts(groups, level, focus, selectedId, { kind, scale }), [groups, level, focus, selectedId, kind, scale]);
-  const places = useMemo(() => addresses(districts), [districts]);
+  // Island shapes and places depend only on the categories and how many towers each carries.
+  const islands = useMemo(() => planIslands(buildCityDistricts(overview.groups, level)), [overview.groups, level]);
   const focused = districts.find((d) => d.id === focus);
   const selected = groups.find((g) => g.id === selectedId);
   const key = `${selectedId}:${date}:${retry}`;
@@ -293,24 +321,48 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const groupFlow = selected ? flowValue(selected.flow, kind) : null;
   const visibleDistrict = focused ? { ...focused, groups: focused.groups.slice(page * PAGE, page * PAGE + PAGE) } : null;
   const overviewDistricts = districts.map((d) => ({ ...d, groups: d.groups.slice(0, OVERVIEW_TOWERS) }));
+  const focusIsland = focused ? islands.get(focused.id) : undefined;
+  const focusShape: Shape | null = focusIsland && visibleDistrict ? { ...focusIsland.shape, ...grid(focused!.groups.length > PAGE ? PAGE : visibleDistrict.groups.length, focusIsland.shape.cols < focusIsland.shape.rows), slot: FOCUS_SLOT } : null;
+
+  // Each island's outline including its tallest tower on any replayed day, so playback never reframes the city.
+  const outlines = useMemo(() => {
+    const tops = new Map<string, number>();
+    overview.replay.forEach((_, s) => {
+      const daily = overview.groups.map((g) => g.days[s] ? { ...g, ...g.days[s], rank: g.turnover } : g);
+      for (const d of buildCityDistricts(daily, level, null, null, { kind, scale })) {
+        const island = islands.get(d.id);
+        if (!island) continue;
+        d.groups.slice(0, OVERVIEW_TOWERS).forEach((b, i) => tops.set(d.id, Math.min(tops.get(d.id) ?? 0, slotAt(island.shape, i).y - 5 - towerHeight(b) - 48)));
+      }
+    });
+    return new Map([...islands.values()].map((island) => {
+      const box = islandBox(island.shape, 0);
+      const top = Math.min(box.y0 - 60, tops.get(island.id) ?? 0);
+      return [island.id, { box: shift({ ...box, y0: top }, island.at), room: box.y0 - top }];
+    }));
+  }, [overview.groups, overview.replay, level, kind, scale, islands]);
+  const frame: Box = focusShape
+    ? (() => { const b = islandBox(focusShape, 6 * LAYER + 60); return { x0: b.x0 - 330, y0: b.y0 - 10, x1: b.x1 + 330, y1: b.y1 + 40 }; })()
+    : (() => { const b = union([HUB, ...[...outlines.values()].map((o) => o.box)]); return { x0: b.x0 - 130, y0: b.y0 - 20, x1: b.x1 + 130, y1: b.y1 + 50 }; })();
+  const cityViewBox = `${Math.floor(frame.x0)} ${Math.floor(frame.y0)} ${Math.ceil(frame.x1 - frame.x0)} ${Math.ceil(frame.y1 - frame.y0)}`;
+
+  // Where the selected tower stands, and the free space beside its island for the stocks to fly out to.
   const host = visibleDistrict ?? overviewDistricts.find((d) => d.groups.some((b) => b.id === selectedId));
+  const hostIsland = host ? islands.get(host.id) : undefined;
   const hostIndex = host ? host.groups.findIndex((b) => b.id === selectedId) : -1;
-  const anchor = host && hostIndex >= 0 ? (() => {
-    const base = visibleDistrict ? { x: 0, y: 0 } : at(places.get(host.id)!.cell);
-    const s = slot(hostIndex, visibleDistrict ? FOCUS_SLOT : SLOT);
-    return { x: base.x + s.x, y: base.y + s.y - 6 - towerHeight(host.groups[hostIndex]) };
-  })() : null;
-  const cells = [[0, 0] as [number, number], ...overviewDistricts.map((d) => places.get(d.id)!.cell)];
-  const taken = new Set(cells.map((c) => c.join()));
-  const walkways = cells.flatMap((a, i) => cells.slice(i + 1).filter((b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) === 1).map((b) => [a, b] as const));
-  // Frame the overview by its tallest tower on any replayed day, so playback never rescales the city.
-  const skyline = useMemo(() => Math.min(-430, ...overview.replay.map((_, s) => {
-    const daily = overview.groups.map((g) => g.days[s] ? { ...g, ...g.days[s], rank: g.turnover } : g);
-    const built = buildCityDistricts(daily, level, null, null, { kind, scale });
-    const cellOf = addresses(built);
-    return Math.min(...built.flatMap((d) => d.groups.slice(0, OVERVIEW_TOWERS).map((b, i) => at(cellOf.get(d.id)!.cell).y + slot(i, SLOT).y - towerHeight(b) - 50)));
-  })), [overview.groups, overview.replay, level, kind, scale]);
-  const cityViewBox = focused ? "-730 -350 1090 660" : `-830 ${Math.floor(skyline)} 1600 ${Math.ceil(525 - skyline)}`;
+  const hostShape = focusShape ?? hostIsland?.shape;
+  const origin = focusShape ? { x: 0, y: 0 } : hostIsland?.at;
+  const anchor = host && hostShape && origin && hostIndex >= 0
+    ? { x: origin.x + slotAt(hostShape, hostIndex).x, y: origin.y + slotAt(hostShape, hostIndex).y - 5 - towerHeight(host.groups[hostIndex]) } : null;
+  const spots = anchor && hostIsland && hostShape ? flyoutSpots(
+    focusShape ? islandBox(focusShape, 6 * LAYER + 30) : outlines.get(hostIsland.id)!.box,
+    focusShape ? islandSilhouettes(focusShape, { x: 0, y: 0 }, 6 * LAYER + 40)
+      : [silhouette(HUB_RECT, { x: 0, y: 0 }, 110), ...[...islands.values()].flatMap((island) => islandSilhouettes(island.shape, island.at, outlines.get(island.id)!.room))],
+    // Keep clear of the breadcrumb that floats over the top-left of the scene.
+    { ...frame, y0: frame.y0 + 50 },
+    focusShape ? { x: Math.cos(hostIsland.address.angle * Math.PI / 180), y: Math.sin(hostIsland.address.angle * Math.PI / 180) } : hostIsland.at,
+    Math.min(4, members.length || 4),
+  ) : [];
 
   useEffect(() => {
     if (!selectedId || !date) return;
@@ -366,8 +418,10 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   ];
   const turnPage = (delta: number) => { setSelectedId(null); setStockId(null); setClosing(false); setPage((p) => p + delta); setView({ x: 0, y: 0, scale: 1 }); };
   const levelName = level === "theme" ? "族群" : "產業";
+  const statusAt = spots.length ? { x: spots.reduce((s, p) => s + p.x, 0) / spots.length, y: spots.reduce((s, p) => s + p.y, 0) / spots.length } : null;
 
   return <section className={`brick-city ${animated ? "city-motion" : ""} ${closing ? "city-closing" : ""}`} aria-label="市場積木城市" onKeyDown={(e) => { if (e.key === "Escape") { if (selectedId) closeGroup(); else reset(); } }}>
+    <ParticleField running={animated} quiet=".city-title"/>
     <header className="city-head">
       <div className="city-title">
         <h1>立體積木城市</h1>
@@ -391,7 +445,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
     <div className="city-stage">
       <div className="city-scene-wrap">
         <div className="city-mobile-nav"><div><small>TAIEX · 大盤 {date ? shortDate(date) : ""}</small><strong>{indexText(day?.index?.value)}</strong><b className={signClass(day?.index?.change ?? null)}>{pct(day?.index?.change ?? null)}</b></div><label>選擇產業底板<select aria-label="選擇產業底板" value={focus ?? ""} onChange={(e) => e.target.value ? focusDistrict(e.target.value) : reset()}><option value="">全市場總覽</option>{districts.map((d) => <option value={d.id} key={d.id}>{d.name} · {d.totalGroups} 群</option>)}</select></label></div>
-        <nav className="city-breadcrumb" aria-label="城市導覽"><button onClick={reset} aria-current={!focus && !selectedId ? "page" : undefined}>全市場</button>{focused ? <><span>/</span><button onClick={() => focusDistrict(focused.id)} aria-current={!selectedId ? "page" : undefined}>{focused.name}</button></> : null}{selected ? <><span>/</span><span>{selected.name}</span></> : null}</nav>
+        <nav className="city-breadcrumb" aria-label="城市導覽"><button onClick={reset} aria-current={!focus && !selectedId ? "page" : undefined}>全市場</button>{focused ? <><span>/</span><button onClick={() => focusDistrict(focused.id)} aria-current={!selectedId ? "page" : undefined}>{focused.name}</button></> : null}{selected ? <><span>/</span><span>{selected.name}</span></> : null}<small className="city-hint">點積木塔拆開成分股 · 點名牌展開產業</small></nav>
         <div className="city-scene">
           {overview.groups.length ? <svg ref={svg} role="group" viewBox={cityViewBox} className={`city-svg ${focused ? "city-svg-focused" : ""}`} aria-label={focused ? `${focused.name}的${levelName}積木` : "全市場產業積木城市"}
             onPointerDown={(e) => { if (e.button !== 0 || (e.target as Element).closest("[data-city-action]")) return; const p = point(e); drag.current = { id: e.pointerId, ...p }; e.currentTarget.setPointerCapture(e.pointerId); }}
@@ -404,29 +458,18 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
               {!focused ? <>
-                {walkways.map(([a, b]) => <Walkway key={`${a}:${b}`} from={a} to={b}/>)}
-                {[...overviewDistricts.map((d) => ({ d, ...at(places.get(d.id)!.cell) })), { d: null, x: 0, y: 0 }].sort((a, b) => a.y - b.y || a.x - b.x).map((p, i) => p.d
-                  ? <g key={p.d.id} transform={`translate(${p.x} ${p.y})`}><District district={p.d} address={places.get(p.d.id)!} slotSize={SLOT} selectedId={selectedId} delay={i * 70} onFocus={() => focusDistrict(p.d!.id)} onPick={pick}/></g>
+                {overviewDistricts.map((d) => <Trail key={`trail:${d.id}`} to={islands.get(d.id)!.at} bend={hash(d.id) % 2 ? .08 : -.08}/>)}
+                {[...overviewDistricts.map((d) => ({ d, ...islands.get(d.id)!.at })), { d: null, x: 0, y: 0 }].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => p.d
+                  ? <g key={p.d.id} transform={`translate(${p.x} ${p.y})`}>
+                    <IslandView district={p.d} shape={islands.get(p.d.id)!.shape} address={islands.get(p.d.id)!.address} selectedId={selectedId} onFocus={() => focusDistrict(p.d!.id)} onPick={pick}
+                      note={p.d.totalGroups > p.d.groups.length ? `${p.d.groups.length}/${p.d.totalGroups} 群 ›` : `${p.d.totalGroups} 群 ›`}/>
+                  </g>
                   : <Plaza key="market" value={day?.index?.value} change={day?.index?.change ?? null} onClick={reset}/>)}
-                {overviewDistricts.map((d) => <g key={`sign:${d.id}`} transform={`translate(${at(places.get(d.id)!.cell).x} ${at(places.get(d.id)!.cell).y}) ${signSpot(places.get(d.id)!.cell, taken, plateOf(SLOT))}`}
-                  className="city-district-sign" onClick={() => focusDistrict(d.id)} data-city-action="true">
-                  <DistrictSign district={d} icon={places.get(d.id)!.icon} note={d.totalGroups > d.groups.length ? `${d.groups.length}/${d.totalGroups} 群 ›` : `${d.totalGroups} 群 ›`}/>
-                </g>)}
-                {!selectedId ? <g className="city-flyout-hint" aria-hidden="true">
-                  <rect x="-815" y="-82" width="236" height="164" rx="18"/>
-                  {[-40, 0, 40].map((dx, k) => <g key={dx} transform={`translate(${-697 + dx} ${-22 + (k % 2) * 8})`}><Block w={36} d={36 * R} h={14} fill={PAPER} ghost/></g>)}
-                  <text x="-697" y="30" textAnchor="middle" className="city-flyout-hint-title">點一座積木塔</text>
-                  <text x="-697" y="56" textAnchor="middle">成分股會拆到這裡</text>
-                </g> : null}
-              </> : visibleDistrict ? <>
-                <District district={visibleDistrict} address={places.get(focused.id)!} slotSize={FOCUS_SLOT} selectedId={selectedId} delay={0} onFocus={() => focusDistrict(focused.id)} onPick={pick}/>
-                <g transform={`translate(0 ${plateOf(FOCUS_SLOT) * R / 2 + 30}) rotate(-10)`} className="city-district-sign" onClick={() => focusDistrict(focused.id)} data-city-action="true">
-                  <DistrictSign district={focused} icon={places.get(focused.id)!.icon} note={focused.groups.length > PAGE ? `${page * PAGE + 1}–${page * PAGE + visibleDistrict.groups.length} / ${focused.totalGroups} 群` : `${focused.totalGroups} 群`}/>
-                </g>
-              </> : null}
+              </> : visibleDistrict && focusShape && focusIsland ? <IslandView district={visibleDistrict} shape={focusShape} address={focusIsland.address} selectedId={selectedId} onFocus={() => focusDistrict(focused.id)} onPick={pick}
+                note={focused.groups.length > PAGE ? `${page * PAGE + 1}–${page * PAGE + visibleDistrict.groups.length} / ${focused.totalGroups} 群` : `${focused.totalGroups} 群`}/> : null}
               {selectedId && anchor ? (detail && members.length
-                ? <Flyout anchor={anchor} members={members} kind={kind} stockId={stockId} x={focused ? -720 : -815} onPick={setStockId}/>
-                : <text x={focused ? -560 : -650} y="0" textAnchor="middle" className="city-flyout-status">{failed ? "資料讀取失敗，請於右側重試" : !detail ? "正在拆開成分股…" : "目前沒有成分股資料"}</text>) : null}
+                ? <Flyout anchor={anchor} members={members} spots={spots} kind={kind} stockId={stockId} onPick={setStockId}/>
+                : statusAt ? <text x={statusAt.x} y={statusAt.y} textAnchor="middle" className="city-flyout-status">{failed ? "資料讀取失敗，請於右側重試" : !detail ? "正在拆開成分股…" : "目前沒有成分股資料"}</text> : null) : null}
             </g>
           </svg> : <div className="city-empty">尚未取得市場行情，資料同步後將自動建立積木城市。</div>}
         </div>
@@ -488,7 +531,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
     </div> : null}
     <div className="city-legend" aria-label="積木資料圖例">
       <span><i className="city-key city-key-in"/>法人買超</span><span><i className="city-key city-key-out"/>法人賣超</span><span><i className="city-key city-key-light"/>淺色＝幅度小</span><span><i className="city-key city-key-zero"/>零</span><span><i className="city-key city-key-missing"/>缺值</span>
-      <p><b>底板</b>＝產業　<b>積木塔</b>＝{levelName}　<b>占地</b>＝成交額　<b>層數</b>＝法人{kindLabel(kind)}幅度（相對 1–6 級，整段回放同一比例）</p>
+      <p><b>島</b>＝產業　<b>積木塔</b>＝{levelName}　<b>占地</b>＝成交額　<b>層數</b>＝法人{kindLabel(kind)}幅度（相對 1–6 級，整段回放同一比例）</p>
     </div>
   </section>;
 }

@@ -3,6 +3,9 @@
 .brick-city button{cursor:pointer}.brick-city button:disabled{cursor:default;opacity:.4}
 .brick-city button:focus-visible,.brick-city input:focus-visible,.brick-city select:focus-visible{outline:3px solid var(--color-sun);outline-offset:3px}
 .city-mono{font-family:var(--font-mono),monospace}
+/* The particle constellation sits behind everything; the content layers above it. */
+.city-particles{position:absolute;inset:0;z-index:0;pointer-events:none}
+.city-head,.city-stage,.city-timeline,.city-legend{position:relative;z-index:1}
 
 /* Header: title on the left, category tabs and date on the right. */
 .city-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:22px 30px 0}
@@ -25,6 +28,9 @@
 .city-scene-wrap{position:relative;min-width:0}
 .city-breadcrumb{position:absolute;left:30px;top:12px;z-index:1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:#53657a}
 .city-breadcrumb button{font-weight:700}.city-breadcrumb button[aria-current=page]{border-bottom:3px solid var(--color-sun)}
+.city-hint{margin-left:6px;padding-left:12px;border-left:1px solid var(--color-line);font-size:11px;color:var(--color-ink-3)}
+.city-trail{fill:none;stroke:#e9dfca;stroke-width:24px;stroke-linecap:round;opacity:.85}
+.city-trail-dash{fill:none;stroke:var(--color-ink);stroke-opacity:.32;stroke-width:2.5px;stroke-linecap:round;stroke-dasharray:2 11}
 .city-scene{height:clamp(520px,calc(100vh - 330px),760px);width:100%;overflow:hidden}
 .city-svg{height:100%;width:100%;touch-action:pan-y;user-select:none}
 .city-base,.city-tower,.city-stock,.city-market,.city-district-sign{cursor:pointer;outline:none}
@@ -38,8 +44,6 @@
 .city-flyout-glow{fill:none;stroke:var(--color-sun);stroke-width:11px;stroke-linecap:round;opacity:.3}
 .city-flyout-path{fill:none;stroke:#e2b21b;stroke-width:3.5px;stroke-linecap:round;stroke-dasharray:3 11}
 .city-flyout-status{font-size:20px;font-weight:700;fill:var(--color-ink-2)}
-.city-flyout-hint rect{fill:#fffdf880;stroke:#c9bfae;stroke-width:2px;stroke-dasharray:7 7}
-.city-flyout-hint text{font-size:17px;fill:var(--color-ink-3)}.city-flyout-hint .city-flyout-hint-title{font-size:21px;font-weight:800;fill:var(--color-ink-2)}
 .city-zoom{position:absolute;right:10px;bottom:12px;display:flex;border:1px solid #cfc4b0;border-radius:8px;overflow:hidden;background:var(--color-paper)}
 .city-zoom button{padding:7px 11px;font-family:var(--font-mono),monospace;font-size:12px;font-weight:700}.city-zoom button+button{border-left:1px solid var(--color-line)}
 .city-pagination{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:16px;align-items:center;padding:6px 10px;border:1px solid #d9cdb8;border-radius:10px;background:#fffdf8e6;font-size:12px;white-space:nowrap}
@@ -110,16 +114,14 @@
 .city-key{width:14px;height:14px;border:1.5px solid var(--color-ink);border-radius:2px;display:inline-block}
 .city-key-in{background:#d9534f}.city-key-out{background:var(--color-sea)}.city-key-light{background:linear-gradient(90deg,#f2a79e 50%,#8ed6cf 50%)}.city-key-zero{background:var(--color-cream)}.city-key-missing{border-style:dashed;background:#c9d0d8}
 
-/* Motion: assembly on entry, stocks flying out, marching links. Never presented as fund movement. */
-@keyframes city-assemble{from{opacity:0;transform:translateY(-45px)}to{opacity:1;transform:translateY(0)}}
+/* Motion: stocks flying out and marching links (the background constellation lives in particle-field.tsx). Never presented as fund movement. */
 @keyframes city-fly{from{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.35)}to{opacity:1;transform:none}}
 @keyframes city-disassemble{to{opacity:0;transform:translateY(-35px) scale(.85)}}
 @keyframes city-march{to{stroke-dashoffset:-14}}
-.city-motion .city-assemble{animation:city-assemble .55s cubic-bezier(.2,.8,.2,1) both}
 .city-motion .city-fly{animation:city-fly .65s cubic-bezier(.2,.8,.2,1) both}
 .city-motion .city-flyout-path{animation:city-march 1s linear infinite}
 .city-closing .city-flyout{animation:city-disassemble .24s ease-in both}
-@media(prefers-reduced-motion:reduce){.city-motion .city-assemble,.city-motion .city-fly,.city-motion .city-flyout-path,.city-closing .city-flyout{animation:none!important}}
+@media(prefers-reduced-motion:reduce){.city-motion .city-fly,.city-motion .city-flyout-path,.city-closing .city-flyout{animation:none!important}}
 
 .city-mobile-nav{display:none}
 @media(max-width:1100px){.city-stage{grid-template-columns:minmax(0,1fr) 300px;padding-right:16px}.city-head{padding:22px 22px 0}.city-timeline{gap:14px;margin:4px 16px 0}.city-timeline-title small{display:none}}
