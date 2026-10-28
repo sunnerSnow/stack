@@ -204,10 +204,17 @@ function IslandView({ district, shape, address, selectedId, note, onFocus, onPic
   </g>;
 }
 
-/** A dashed footpath from the market square to an island. */
-function Trail({ to, bend }: { to: Point; bend: number }) {
-  const d = `M 0 0 Q ${to.x / 2 - to.y * bend} ${to.y / 2 + to.x * bend} ${to.x} ${to.y}`;
-  return <g aria-hidden="true"><path d={d} className="city-trail"/><path d={d} className="city-trail-dash"/></g>;
+/**
+ * A dashed footpath between two blocks. It is one unit-long curve stretched onto its ends by a single
+ * transform, so it glides along with the blocks when they move; strokes keep their width while stretched.
+ */
+function Trail({ from, to, bend }: { from: Point; to: Point; bend: number }) {
+  const dx = to.x - from.x, dy = to.y - from.y, gone = Math.hypot(dx, dy) < 1;
+  const d = `M 0 0 Q .5 ${bend} 1 0`;
+  return <g aria-hidden="true" className="city-trail-run" opacity={gone ? 0 : 1}
+    style={{ transform: gone ? `matrix(1, 0, 0, 1, ${from.x}, ${from.y})` : `matrix(${dx}, ${dy}, ${-dy}, ${dx}, ${from.x}, ${from.y})` }}>
+    <path d={d} className="city-trail" vectorEffect="non-scaling-stroke"/><path d={d} className="city-trail-dash" vectorEffect="non-scaling-stroke"/>
+  </g>;
 }
 
 function Plaza({ value, change, onClick }: { value: string | undefined; change: number | null; onClick: () => void }) {
@@ -433,14 +440,30 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
       stage.set(MARKET, { x: 0, y: 0, s: 1, back: false });
       return stage;
     }
-    const rel = shift(outlines.get(hero.id)!.box, { x: -hero.at.x, y: -hero.at.y });
-    const room = { x0: frame.x0 + 60, x1: frame.x1 - 60, y0: frame.y0 + 215, y1: frame.y1 - 30 };
-    const s = Math.max(1, Math.min(2.4, (room.x1 - room.x0) * .6 / (rel.x1 - rel.x0), (room.y1 - room.y0) / (rel.y1 - rel.y0)));
-    stage.set(hero.id, { x: -s * (rel.x0 + rel.x1) / 2, y: (room.y0 + room.y1) / 2 - s * (rel.y0 + rel.y1) / 2, s, back: false });
-    const rest = [...[...islands.values()].filter((i) => i.id !== hero.id).map((i) => ({ id: i.id, x: i.at.x, s: .42 })), { id: MARKET, x: 0, s: .5 }].sort((a, b) => a.x - b.x);
+    const relOf = (id: string) => id === MARKET ? HUB : shift(outlines.get(id)!.box, { x: -islands.get(id)!.at.x, y: -islands.get(id)!.at.y });
+    const rel = relOf(hero.id);
+    const width = frame.x1 - frame.x0, height = frame.y1 - frame.y0;
+    // The hero stands on the square's spot, brought forward toward the viewer.
+    const s = Math.max(1, Math.min(2.1, width * .46 / (rel.x1 - rel.x0), height * .62 / (rel.y1 - rel.y0)));
+    const hero0 = { x: -s * (rel.x0 + rel.x1) / 2, y: frame.y1 - 40 - s * rel.y1 };
+    stage.set(hero.id, { ...hero0, s, back: false });
+    // Everything else circles it on an arc from its left, over the top, to its right, each block keeping
+    // roughly the side of the hero it stood on in the ring.
+    const centre = { x: hero0.x + s * (rel.x0 + rel.x1) / 2, y: hero0.y + s * (rel.y0 + rel.y1) / 2 };
+    const rx = s * (rel.x1 - rel.x0) / 2 + 250, ry = s * (rel.y1 - rel.y0) / 2 + 130;
+    const rest = [...[...islands.values()].filter((i) => i.id !== hero.id).map((i) => ({ id: i.id, at: i.at, s: .42 })), { id: MARKET, at: { x: 0, y: 0 }, s: .5 }]
+      .map((item) => {
+        let a = (Math.atan2(item.at.y - hero.at.y, item.at.x - hero.at.x) * 180 / Math.PI + 360) % 360;
+        if (a < 160) a += 360;
+        if (a > 380) a = a - 380 < 520 - a ? 380 : 160;
+        return { ...item, a };
+      }).sort((p, q) => p.a - q.a);
     rest.forEach((item, i) => {
-      const u = (i + .5) / rest.length;
-      stage.set(item.id, { x: frame.x0 + 150 + u * (frame.x1 - frame.x0 - 300), y: frame.y0 + 125 + 46 * (2 * u - 1) ** 2, s: item.s, back: true });
+      const angle = (160 + (i + .5) * 220 / rest.length) * Math.PI / 180;
+      const r = relOf(item.id), hw = item.s * (r.x1 - r.x0) / 2, hh = item.s * (r.y1 - r.y0) / 2;
+      const x = Math.max(frame.x0 + hw + 10, Math.min(frame.x1 - hw - 10, centre.x + Math.cos(angle) * rx));
+      const y = Math.max(frame.y0 + hh + 40, Math.min(frame.y1 - hh - 10, centre.y + Math.sin(angle) * ry));
+      stage.set(item.id, { x: x - item.s * (r.x0 + r.x1) / 2, y: y - item.s * (r.y0 + r.y1) / 2, s: item.s, back: true });
     });
     return stage;
   };
@@ -459,11 +482,14 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const spots = anchor && focusIsland ? (() => {
     const rel = shift(outlines.get(focusIsland.id)!.box, { x: -focusIsland.at.x, y: -focusIsland.at.y });
     const [a, b] = [onStage({ x: rel.x0, y: rel.y0 }), onStage({ x: rel.x1, y: rel.y1 })];
+    // Stocks open out on the side of the island their tower stands on; a tower on the middle line uses the island's bearing.
+    const tower = slotAt(focusIsland.shape, hostIndex);
+    const side = Math.abs(tower.x) > 1 ? Math.sign(tower.x) : Math.sign(Math.cos(focusIsland.address.angle * Math.PI / 180)) || 1;
     return flyoutSpots({ x0: a.x, y0: a.y, x1: b.x, y1: b.y },
       islandSilhouettes(focusIsland.shape, { x: 0, y: 0 }, outlines.get(focusIsland.id)!.room).map((poly) => poly.map(onStage)),
       // Keep clear of the breadcrumb floating over the top-left of the scene.
       { ...frame, y0: frame.y0 + 50 },
-      { x: Math.cos(focusIsland.address.angle * Math.PI / 180), y: Math.sin(focusIsland.address.angle * Math.PI / 180) },
+      { x: side, y: -.25 },
       Math.min(4, flyout.length || 4));
   })() : [];
 
@@ -567,7 +593,8 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
               {[...GROUNDS, INK].map((g) => <StudPattern key={g} id={studsId(g)} fill={g === INK ? "#2B4C70" : g}/>)}
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
-              <g className={`city-trails ${focused ? "is-hidden" : ""}`}>{overviewDistricts.map((d) => <Trail key={`trail:${d.id}`} to={islands.get(d.id)!.at} bend={hash(d.id) % 2 ? .08 : -.08}/>)}</g>
+              {/* Footpaths run from the centre block (the square, or the opened island) to every other block. */}
+              <g className="city-trails">{[...places].map(([id, p]) => <Trail key={`trail:${id}`} from={places.get(focusIsland?.id ?? MARKET)!} to={p} bend={hash(id) % 2 ? .08 : -.08}/>)}</g>
               {order.map((id) => {
                 const p = places.get(id);
                 if (!p) return null;
@@ -588,7 +615,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
           </svg> : <div className="city-empty">尚未取得市場行情，資料同步後將自動建立積木城市。</div>}
         </div>
         <div className="city-zoom"><button onClick={() => zoom(.8)} aria-label="縮小城市">−</button><button onClick={() => setView({ x: 0, y: 0, scale: 1 })} aria-label="重設城市視角">{Math.round(view.scale * 100)}%</button><button onClick={() => zoom(1.25)} aria-label="放大城市">＋</button></div>
-        {focused && focused.groups.length > PAGE ? <div className="city-pagination"><button disabled={page === 0} onClick={() => turnPage(-1)}>← 上一組</button><span>{page * PAGE + 1}–{Math.min((page + 1) * PAGE, focused.groups.length)} / {focused.groups.length} {levelName}</span><button disabled={(page + 1) * PAGE >= focused.groups.length} onClick={() => turnPage(1)}>下一組 →</button></div> : null}
+        {focused && focused.groups.length > PAGE ? <div className="city-pagination" role="group" aria-label={`${focused.name}的${levelName}分頁`}><button disabled={page === 0} onClick={() => turnPage(-1)}>‹ 上一組</button><span>{page * PAGE + 1}–{Math.min((page + 1) * PAGE, focused.groups.length)} / {focused.groups.length}</span><button disabled={(page + 1) * PAGE >= focused.groups.length} onClick={() => turnPage(1)}>下一組 ›</button></div> : null}
       </div>
 
       <aside className="city-panel" aria-label="市場與族群詳細資料"><div className="city-panel-inner">

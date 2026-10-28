@@ -25,8 +25,9 @@
 .city-breadcrumb{position:absolute;left:30px;top:12px;z-index:1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:#53657a}
 .city-breadcrumb button{font-weight:700}.city-breadcrumb button[aria-current=page]{border-bottom:3px solid var(--color-sun)}
 .city-hint{margin-left:6px;padding-left:12px;border-left:1px solid var(--color-line);font-size:11px;color:var(--color-ink-3)}
-.city-trail{fill:none;stroke:#e9dfca;stroke-width:24px;stroke-linecap:round;opacity:.85}
-.city-trail-dash{fill:none;stroke:var(--color-ink);stroke-opacity:.32;stroke-width:2.5px;stroke-linecap:round;stroke-dasharray:2 11}
+/* Footpaths are stretched onto their ends, so their strokes are sized on screen rather than in the scene. */
+.city-trail{fill:none;stroke:#e9dfca;stroke-width:13px;stroke-linecap:round;opacity:.85}
+.city-trail-dash{fill:none;stroke:var(--color-ink);stroke-opacity:.32;stroke-width:1.5px;stroke-linecap:round;stroke-dasharray:1 6}
 .city-scene{height:clamp(520px,calc(100vh - 330px),760px);width:100%;overflow:hidden}
 .city-svg{height:100%;width:100%;touch-action:pan-y;user-select:none}
 .city-base,.city-tower,.city-stock,.city-market,.city-district-sign{cursor:pointer;outline:none}
@@ -42,13 +43,15 @@
 /* Opening an island: it glides to centre stage while the others step back; still when motion is off. */
 .city-place{transition:transform .7s cubic-bezier(.3,.8,.25,1),opacity .5s ease}
 .city-place.is-back{opacity:.5}.city-place.is-back:hover{opacity:.8}
-.city-trails{transition:opacity .4s ease}.city-trails.is-hidden{opacity:0;pointer-events:none}
-.city-still .city-place,.city-still .city-trails{transition:none}
+.city-trail-run{transition:transform .7s cubic-bezier(.3,.8,.25,1),opacity .4s ease}
+.city-still .city-place,.city-still .city-trail-run{transition:none}
 .city-flyout-status{font-size:20px;font-weight:700;fill:var(--color-ink-2)}
-.city-zoom{position:absolute;right:10px;bottom:12px;display:flex;border:1px solid #cfc4b0;border-radius:8px;overflow:hidden;background:var(--color-paper)}
-.city-zoom button{padding:7px 11px;font-family:var(--font-mono),monospace;font-size:12px;font-weight:700}.city-zoom button+button{border-left:1px solid var(--color-line)}
-.city-pagination{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:16px;align-items:center;padding:6px 10px;border:1px solid #d9cdb8;border-radius:10px;background:#fffdf8e6;font-size:12px;white-space:nowrap}
-.city-pagination button{padding:6px 8px;font-weight:700}
+/* Zoom on the right, page turning on the left: the same small segmented control. */
+.city-zoom,.city-pagination{position:absolute;bottom:12px;display:flex;border:1px solid #cfc4b0;border-radius:8px;overflow:hidden;background:var(--color-paper);white-space:nowrap}
+.city-zoom{right:10px}.city-pagination{left:10px}
+.city-zoom button,.city-pagination>*{padding:7px 11px;font-family:var(--font-mono),monospace;font-size:12px;font-weight:700}
+.city-zoom button+button,.city-pagination>*+*{border-left:1px solid var(--color-line)}
+.city-pagination button{font-family:var(--font-sans)}.city-pagination span{color:var(--color-ink-2)}
 
 /* Detail card */
 /* The card column scrolls within the city's height, so a long list never pushes the timeline down. */
@@ -136,5 +139,5 @@
   .city-steps{order:3;flex-basis:100%}.city-steps span{font-size:11px;gap:4px}.city-steps span b{font-size:13px}
   .city-timeline-tools{margin-left:auto}
   .city-legend{justify-content:flex-start;padding:14px 16px 18px}.city-legend p{padding:0;border:0;width:100%}
-  .city-pagination{bottom:8px;gap:8px}
+  .city-zoom button,.city-pagination>*{padding:7px 9px}
 }

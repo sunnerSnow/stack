@@ -124,8 +124,8 @@ export function islandSilhouettes(shape: Shape, at: Point, room: number): Point[
 
 /**
  * Where a group's stocks fly out. Each stock in turn takes the free spot around its island that covers the
- * least of any other block, stays in the frame, sits close to the island and to the stock before it, and
- * leans away from the market square — so they settle into whatever gap the island has beside it.
+ * least of any blocked shape, stays in the frame, sits close to the island and to the stock before it, and
+ * leans toward `outward` — the side of the island its tower stands on.
  */
 export function flyoutSpots(target: Box, blocked: Point[][], frame: Box, outward: Point, count: number): Point[] {
   const cx = (target.x0 + target.x1) / 2, cy = (target.y0 + target.y1) / 2;
@@ -144,7 +144,7 @@ export function flyoutSpots(target: Box, blocked: Point[][], frame: Box, outward
       const outside = 1 - overlap(item, frame) / (ITEM.w * ITEM.h);
       const crowded = spots.some((p) => Math.abs(p.x - c.x) < ITEM.w + 10 && Math.abs(p.y - c.y) < ITEM.h + 8);
       const apart = spots.length ? Math.min(...spots.map((p) => Math.hypot(p.x - c.x, p.y - c.y))) : 0;
-      return covered * 4000 + outside * 6000 + (crowded ? 10000 : 0) + c.ring * 260 + apart * 1.2 - (c.dir.x * outward.x + c.dir.y * outward.y) / length * 500;
+      return covered * 8000 + outside * 6000 + (crowded ? 10000 : 0) + c.ring * 260 + apart * 1.2 - (c.dir.x * outward.x + c.dir.y * outward.y) / length * 900;
     };
     const best = candidates.reduce((a, b) => score(b) < score(a) ? b : a);
     spots.push({ x: best.x, y: best.y });
