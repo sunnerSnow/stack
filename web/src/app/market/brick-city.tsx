@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import Link from "next/link";
 import "./brick-city.css";
 import { buildCityDistricts, cityScale, OVERVIEW_TOWERS, type CityBuilding, type CityDistrict, type FlowKind } from "@/lib/market/city-layout";
@@ -8,14 +8,14 @@ import { flowValue } from "@/lib/market/flows";
 import type { GroupDetailDto, MemberRow } from "@/lib/services/market";
 import type { MarketOverviewDto } from "@/lib/services/market-overview";
 import { arrangeIslands, corners, flyoutSpots, grid, ITEM, iso, islandBox, islandSilhouettes, PLATE_H, plates, R, shift, silhouette, slotAt, union, type Box, type Point, type Rect, type Shape } from "./islands";
-import { ParticleField } from "./particle-field";
 
 const INK = "#173451", SUN = "#F5D548", SEA = "#187F7C", CREAM = "#F5F0E5", PAPER = "#FFFDF8";
 const BUY = "#D9534F", BUY_LT = "#F2A79E", SEA_LT = "#8ED6CF", MISSING = "#C9D0D8", TREE = "#5E8C61", ACTIVE_GROUND = "#F8E7A0", TERRACE_GROUND = "#EFE5CF";
 const SLOT = 130, FOCUS_SLOT = 190, LAYER = 28, PAGE = 9, TOWER_ROOM = 90;
 /** The market square in the middle: its footprint, and its screen bounds with the index line and flag. */
-const HUB_RECT: Rect = { s0: -155, s1: 155, t0: -155, t1: 155 };
-const HUB: Box = { x0: -160, y0: -100, x1: 160, y1: 125 };
+const PLAZA = 430;
+const HUB_RECT: Rect = { s0: -PLAZA / 2, s1: PLAZA / 2, t0: -PLAZA / 2, t1: PLAZA / 2 };
+const HUB: Box = { x0: -PLAZA / 2 - 6, y0: -PLAZA * R / 2 - 40, x1: PLAZA / 2 + 6, y1: PLAZA * R / 2 + 50 };
 const KINDS = [["total", "合計"], ["foreign", "外資"], ["trust", "投信"], ["dealer", "自營商"]] as const;
 const NO_FLOW = { foreign: null, trust: null, dealer: null };
 const kindLabel = (kind: FlowKind) => KINDS.find(([k]) => k === kind)![1];
@@ -212,35 +212,104 @@ function Trail({ to, bend }: { to: Point; bend: number }) {
 
 function Plaza({ value, change, onClick }: { value: string | undefined; change: number | null; onClick: () => void }) {
   return <g className="city-market" role="button" tabIndex={0} aria-label="查看大盤摘要" onClick={onClick} onKeyDown={press(onClick)} data-city-action="true">
-    <ellipse cy="112" rx="170" ry="26" fill={INK} opacity=".1"/>
-    <Block w={310} d={310 * R} h={30} fill={INK} studs={false}/>
-    <polygon points={diamond(292)} fill={`url(#${studsId(INK)})`}/>
-    {[[-118, 4], [118, 4], [0, -66], [-56, 54], [58, 54]].map(([x, y]) => <g key={`${x}:${y}`} transform={`translate(${x} ${y - 12})`}><Block w={34} d={34 * R} h={12} fill={SUN}/></g>)}
-    <path d="M 82 -30 V -96" stroke={INK} strokeWidth="3" strokeLinecap="round"/><path d="M 84 -96 L 116 -86 L 84 -76 Z" fill={SUN} stroke={INK} strokeWidth="2" strokeLinejoin="round"/>
-    <text y="-4" textAnchor="middle" fill={CREAM} stroke="#0d2136" strokeWidth="9" paintOrder="stroke" fontSize="56" fontWeight="900" letterSpacing="4">大盤</text>
-    <text y="34" textAnchor="middle" fill={SUN} fontSize="21" fontWeight="700" className="city-mono">{indexText(value)} · {pct(change)}</text>
+    <ellipse cy={PLAZA * R / 2 + 40} rx={PLAZA * .56} ry="32" fill={INK} opacity=".1"/>
+    <Block w={PLAZA} d={PLAZA * R} h={36} fill={INK} studs={false}/>
+    <polygon points={diamond(PLAZA - 20)} fill={`url(#${studsId(INK)})`}/>
+    {[[-166, 4], [166, 4], [0, -92], [-80, 76], [82, 76], [-118, -40], [120, -42]].map(([x, y]) => <g key={`${x}:${y}`} transform={`translate(${x} ${y - 12})`}><Block w={38} d={38 * R} h={13} fill={SUN}/></g>)}
+    <path d="M 118 -40 V -122" stroke={INK} strokeWidth="3.5" strokeLinecap="round"/><path d="M 120 -122 L 158 -110 L 120 -98 Z" fill={SUN} stroke={INK} strokeWidth="2" strokeLinejoin="round"/>
+    <text y="-2" textAnchor="middle" fill={CREAM} stroke="#0d2136" strokeWidth="11" paintOrder="stroke" fontSize="76" fontWeight="900" letterSpacing="6">大盤</text>
+    <text y="46" textAnchor="middle" fill={SUN} fontSize="27" fontWeight="700" className="city-mono">{indexText(value)} · {pct(change)}</text>
   </g>;
 }
 
-function Flyout({ anchor, members, spots, kind, stockId, onPick }: { anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; onPick: (id: string) => void }) {
-  const shown = members.slice(0, spots.length).map((m, i) => ({ m, p: spots[i] }));
-  return <g className="city-flyout">
-    {shown.map(({ m, p }) => {
-      const d = `M ${p.x} ${p.y - 60} Q ${(p.x + anchor.x) / 2} ${Math.min(p.y, anchor.y) - 110} ${anchor.x} ${anchor.y - 4}`;
-      return <g key={`path:${m.assetId}`} aria-hidden="true"><path d={d} className="city-flyout-glow"/><path d={d} className="city-flyout-path" markerEnd="url(#city-arrow)"/></g>;
-    })}
-    {shown.map(({ m, p }, i) => {
+const EXPAND = 850, STAGGER = 120, BURST = 1400, COLLAPSE = 240, SPARK_LINK = 130, BRICK_LINK = 340;
+const easeOut = (x: number) => 1 - (1 - x) ** 3;
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+/** Seeded random numbers, so a group always bursts the same way. */
+const seeded = (seed: number) => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const reducedMotion = (onChange: () => void) => {
+  const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+
+/**
+ * A group opening up, played once per selection: a burst of particles leaves the tower while its stocks travel
+ * out to the free space beside the island, and anything within reach links up — the nearer, the clearer the
+ * line. Once settled only the tower and its stocks stay linked; on close the stocks fold back into the tower.
+ */
+function Constellation({ seed, anchor, members, spots, kind, stockId, motion, closing, onPick }: {
+  seed: number; anchor: Point; members: MemberRow[]; spots: Point[]; kind: FlowKind; stockId: string | null; motion: boolean; closing: boolean; onPick: (id: string) => void;
+}) {
+  const settled = BURST + STAGGER * spots.length;
+  const [elapsed, setElapsed] = useState(0);
+  const [folding, setFolding] = useState(0);
+  useEffect(() => {
+    if (!motion) return;
+    const begin = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const time = now - begin;
+      if (closing) setFolding(Math.min(1, time / COLLAPSE)); else setElapsed(time);
+      if (time < (closing ? COLLAPSE : settled)) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [motion, closing, settled]);
+  const sparks = useMemo(() => {
+    const next = seeded(seed);
+    return Array.from({ length: 26 }, () => ({ angle: next() * Math.PI * 2, reach: 70 + next() * 200, size: 1.8 + next() * 2, life: BURST * (.6 + next() * .4), tint: next() }));
+  }, [seed]);
+  const t = motion ? elapsed : settled;
+  const fold = motion && closing ? folding ** 2 : 0;
+  const bricks = members.slice(0, spots.length).map((m, i) => {
+    const p = easeOut(clamp01((t - i * STAGGER) / EXPAND)) * (1 - fold);
+    const s = .35 + .65 * p;
+    const x = anchor.x + (spots[i].x - anchor.x) * p, y = anchor.y + (spots[i].y - anchor.y) * p - Math.sin(Math.PI * p) * 60;
+    return { m, p, s, x, y, node: { x, y: y + 18 * s } };
+  });
+  const dust = sparks.map((k) => {
+    const age = clamp01(t / k.life), drift = easeOut(age);
+    return { ...k, x: anchor.x + Math.cos(k.angle) * k.reach * drift, y: anchor.y + Math.sin(k.angle) * k.reach * .7 * drift, alpha: (1 - age) * Math.min(1, t / 90) * (1 - fold) };
+  }).filter((k) => k.alpha > .02);
+  const links: { a: Point; b: Point; alpha: number; width: number }[] = [];
+  for (const b of bricks) {
+    if (b.p <= 0) continue;
+    const d = Math.hypot(b.node.x - anchor.x, b.node.y - anchor.y);
+    links.push({ a: anchor, b: b.node, alpha: Math.max(.22, Math.min(.75, 1 - d / 900)) * clamp01(b.p * 3), width: 2 });
+  }
+  bricks.forEach((a, i) => bricks.slice(i + 1).forEach((b) => {
+    const d = Math.hypot(a.node.x - b.node.x, a.node.y - b.node.y);
+    if (d < BRICK_LINK && a.p > 0 && b.p > 0) links.push({ a: a.node, b: b.node, alpha: (1 - d / BRICK_LINK) * .55 * Math.min(a.p, b.p), width: 1.4 });
+  }));
+  const nodes = [anchor, ...bricks.filter((b) => b.p > 0).map((b) => b.node)];
+  dust.forEach((k, i) => {
+    for (const other of [...dust.slice(i + 1), ...nodes]) {
+      const d = Math.hypot(k.x - other.x, k.y - other.y);
+      if (d < SPARK_LINK) links.push({ a: k, b: other, alpha: (1 - d / SPARK_LINK) * .5 * k.alpha, width: 1 });
+    }
+  });
+  return <g className="city-constellation">
+    <g aria-hidden="true">
+      {links.map((l, i) => <line key={i} x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} stroke={INK} strokeOpacity={l.alpha} strokeWidth={l.width} strokeLinecap="round"/>)}
+      {dust.map((k, i) => <circle key={i} cx={k.x} cy={k.y} r={k.size} fill={k.tint < .5 ? INK : k.tint < .8 ? SEA : SUN} fillOpacity={k.alpha} stroke={k.tint >= .8 ? INK : "none"} strokeOpacity={k.alpha * .6}/>)}
+      <circle cx={anchor.x} cy={anchor.y} r="7" fill={SUN} stroke={INK} strokeWidth="2" opacity={1 - fold}/>
+    </g>
+    {bricks.map(({ m, p, s, x, y }) => {
       const value = flowValue(m.flow, kind);
       const pick = () => onPick(m.assetId);
       const on = stockId === m.assetId;
-      return <g key={m.assetId} transform={`translate(${p.x} ${p.y})`}>
-        <g className="city-stock city-fly" style={{ "--dx": `${anchor.x - p.x}px`, "--dy": `${anchor.y - p.y}px`, animationDelay: `${i * 90}ms` } as CSSProperties}
-          role="button" tabIndex={0} aria-label={`查看個股 ${m.symbol} ${m.name}`} aria-pressed={on} onClick={pick} onKeyDown={press(pick)} data-city-action="true">
-          <rect x={-ITEM.w / 2} y="8" width={ITEM.w} height="60" rx="12" fill={PAPER} stroke={on ? INK : "#D9CDB8"} strokeWidth={on ? 2.5 : 1.5}/>
-          <text y="35" textAnchor="middle" fontSize="25" fontWeight="900" fill={INK}>{m.name}</text>
-          <text y="58" textAnchor="middle" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol} · {money(value)}</text>
-          <g transform="translate(0 -34)"><Block w={84} d={84 * R} h={28} fill={on ? SUN : tone(value)} ghost={value === null}/></g>
-        </g>
+      return <g key={m.assetId} transform={`translate(${x} ${y}) scale(${s})`} opacity={clamp01(p * 2.5)} className="city-stock"
+        role="button" tabIndex={0} aria-label={`查看個股 ${m.symbol} ${m.name}`} aria-pressed={on} onClick={pick} onKeyDown={press(pick)} data-city-action="true">
+        <rect x={-ITEM.w / 2} y="-66" width={ITEM.w} height="56" rx="12" fill={PAPER} stroke={on ? INK : "#D9CDB8"} strokeWidth={on ? 2.5 : 1.5}/>
+        <text y="-40" textAnchor="middle" fontSize="25" fontWeight="900" fill={INK}>{m.name}</text>
+        <text y="-18" textAnchor="middle" fontSize="16" fill="#4a5f75" className="city-mono">{m.symbol} · {money(value)}</text>
+        <g transform="translate(0 18)"><Block w={84} d={84 * R} h={28} fill={on ? SUN : tone(value)} ghost={value === null}/></g>
       </g>;
     })}
   </g>;
@@ -317,6 +386,11 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const focusedIds = new Set(focused?.groups.map((g) => g.id));
   const candidates = groups.filter((g) => g.level === level && (!focused || focusedIds.has(g.id)) && g.name.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1));
   const members = useMemo(() => [...(detail?.members ?? [])].sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1)), [detail]);
+  // While another replay day loads, the opened group keeps its previous stocks instead of folding and reopening.
+  const earlier = response?.key.startsWith(`${selectedId}:`) ? response.data : undefined;
+  const flyout = useMemo(() => [...((detail ?? earlier)?.members ?? [])].sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1)), [detail, earlier]);
+  const reduced = useSyncExternalStore(reducedMotion, () => window.matchMedia("(prefers-reduced-motion: reduce)").matches, () => false);
+  const motion = animated && !reduced;
   const selectedStock = members.find((m) => m.assetId === stockId);
   const groupFlow = selected ? flowValue(selected.flow, kind) : null;
   const visibleDistrict = focused ? { ...focused, groups: focused.groups.slice(page * PAGE, page * PAGE + PAGE) } : null;
@@ -361,7 +435,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
     // Keep clear of the breadcrumb that floats over the top-left of the scene.
     { ...frame, y0: frame.y0 + 50 },
     focusShape ? { x: Math.cos(hostIsland.address.angle * Math.PI / 180), y: Math.sin(hostIsland.address.angle * Math.PI / 180) } : hostIsland.at,
-    Math.min(4, members.length || 4),
+    Math.min(4, flyout.length || 4),
   ) : [];
 
   useEffect(() => {
@@ -387,7 +461,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   }, [playing, step, last, speed]);
 
   function closeGroup() {
-    if (animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) setClosing(true);
+    if (motion) setClosing(true);
     else { setSelectedId(null); setStockId(null); }
   }
   function reset() { setClosing(false); setFocus(null); setSelectedId(null); setStockId(null); setPage(0); setQuery(""); setView({ x: 0, y: 0, scale: 1 }); }
@@ -420,8 +494,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
   const levelName = level === "theme" ? "族群" : "產業";
   const statusAt = spots.length ? { x: spots.reduce((s, p) => s + p.x, 0) / spots.length, y: spots.reduce((s, p) => s + p.y, 0) / spots.length } : null;
 
-  return <section className={`brick-city ${animated ? "city-motion" : ""} ${closing ? "city-closing" : ""}`} aria-label="市場積木城市" onKeyDown={(e) => { if (e.key === "Escape") { if (selectedId) closeGroup(); else reset(); } }}>
-    <ParticleField running={animated} quiet=".city-title"/>
+  return <section className="brick-city" aria-label="市場積木城市" onKeyDown={(e) => { if (e.key === "Escape") { if (selectedId) closeGroup(); else reset(); } }}>
     <header className="city-head">
       <div className="city-title">
         <h1>立體積木城市</h1>
@@ -454,7 +527,6 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
             <defs>
               <linearGradient id="city-top-light" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#fffdf8" stopOpacity=".34"/><stop offset="1" stopColor="#fffdf8" stopOpacity="0"/></linearGradient>
               {[...GROUNDS, INK].map((g) => <StudPattern key={g} id={studsId(g)} fill={g === INK ? "#2B4C70" : g}/>)}
-              <marker id="city-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#E2B21B"/></marker>
             </defs>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
               {!focused ? <>
@@ -467,8 +539,8 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
                   : <Plaza key="market" value={day?.index?.value} change={day?.index?.change ?? null} onClick={reset}/>)}
               </> : visibleDistrict && focusShape && focusIsland ? <IslandView district={visibleDistrict} shape={focusShape} address={focusIsland.address} selectedId={selectedId} onFocus={() => focusDistrict(focused.id)} onPick={pick}
                 note={focused.groups.length > PAGE ? `${page * PAGE + 1}–${page * PAGE + visibleDistrict.groups.length} / ${focused.totalGroups} 群` : `${focused.totalGroups} 群`}/> : null}
-              {selectedId && anchor ? (detail && members.length
-                ? <Flyout anchor={anchor} members={members} spots={spots} kind={kind} stockId={stockId} onPick={setStockId}/>
+              {selectedId && anchor ? (flyout.length && !failed
+                ? <Constellation key={selectedId} seed={hash(selectedId)} anchor={anchor} members={flyout} spots={spots} kind={kind} stockId={stockId} motion={motion} closing={closing} onPick={setStockId}/>
                 : statusAt ? <text x={statusAt.x} y={statusAt.y} textAnchor="middle" className="city-flyout-status">{failed ? "資料讀取失敗，請於右側重試" : !detail ? "正在拆開成分股…" : "目前沒有成分股資料"}</text> : null) : null}
             </g>
           </svg> : <div className="city-empty">尚未取得市場行情，資料同步後將自動建立積木城市。</div>}
