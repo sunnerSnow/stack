@@ -41,12 +41,15 @@ export interface PriceSyncReport {
 const TIMEOUT_MS = 20_000;
 const LOOKBACK_DAYS = 10;
 
+/** 交易所的回應有好幾 MB，從 Vercel 抓第一次常要十幾秒，給長一點（跟族群行情的排程一樣） */
+const EXCHANGE_TIMEOUT_MS = 30_000;
+
 function defaultFetcher(url: string, init?: RequestInit) {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  return fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(TIMEOUT_MS) });
 }
 
-/** 證交所網站會擋沒有瀏覽器標頭的請求（族群行情的排程也這樣送） */
-const exchangeInit: RequestInit = { headers: { "user-agent": "Mozilla/5.0 (STACK)" } };
+/** 證交所網站會擋沒有瀏覽器標頭的請求（族群行情的排程也這樣送）；每次請求重新計時 */
+const exchangeInit = (): RequestInit => ({ headers: { "user-agent": "Mozilla/5.0 (STACK)" }, signal: AbortSignal.timeout(EXCHANGE_TIMEOUT_MS) });
 
 /** FinMind 的金鑰（選填）：沒有也能用，只是每小時的次數比較少 */
 const finmindInit = (): RequestInit => (process.env.FINMIND_TOKEN ? { headers: { Authorization: `Bearer ${process.env.FINMIND_TOKEN}` } } : {});
@@ -101,12 +104,14 @@ interface HeldAsset {
   market: string;
   symbol: string;
   currency: string;
+  /** 台股是 TWSE（上市）或 TPEx（上櫃）；不知道的是 null */
+  exchange: string | null;
 }
 
 /** 現在有人持有的共用資產（跨使用者，只在排程裡用） */
 export async function heldSharedAssets(db: Db): Promise<HeldAsset[]> {
   const result = await db.execute(sql`
-    select a.id, a.market, a.symbol, a.currency
+    select a.id, a.market, a.symbol, a.currency, a.exchange
     from stack.assets a
     where a.created_by is null and a.id in (
       select asset_id from stack.position_lots where remaining_quantity > 0
@@ -144,19 +149,24 @@ export async function syncPrices(db: Db, fetcher: Fetcher = defaultFetcher, opts
   const today = opts.today ?? todayInTaipei();
   const since = minusDays(today, LOOKBACK_DAYS);
   const held = await heldSharedAssets(db);
-  const tw = new Map(held.filter((a) => a.market === "TW").map((a) => [a.symbol, a]));
+  const tw = held.filter((a) => a.market === "TW");
+  // 只問有持股的交易所（不知道在哪裡掛牌的兩邊都問）
+  const onTwse = new Map(tw.filter((a) => a.exchange !== "TPEx").map((a) => [a.symbol, a]));
+  const onTpex = new Map(tw.filter((a) => a.exchange !== "TWSE").map((a) => [a.symbol, a]));
   const us = held.filter((a) => a.market === "US");
   const report: PriceSyncReport = { heldAssets: held.length, twse: { stored: 0 }, tpex: { stored: 0 }, us: { stored: 0, errors: [] }, fx: { stored: 0 } };
 
-  if (tw.size > 0) {
-    // 先存當天（指定日期），再用 OpenAPI 補前一個交易日；同一天已經有的不會被後者覆寫
-    report.twse = await storeFromSources(db, tw, "twse", [
-      async () => quotesOn(await getJson(fetcher, twseQuotesUrl(today), exchangeInit), today, parseTwseQuotes),
-      async () => parseTwseDayAll(await getJson(fetcher, TWSE_DAY_ALL_URL)),
+  // 先存當天（指定日期），再用 OpenAPI 補前一個交易日；同一天已經有的不會被後者覆寫
+  if (onTwse.size > 0) {
+    report.twse = await storeFromSources(db, onTwse, "twse", [
+      async () => quotesOn(await getJson(fetcher, twseQuotesUrl(today), exchangeInit()), today, parseTwseQuotes),
+      async () => parseTwseDayAll(await getJson(fetcher, TWSE_DAY_ALL_URL, exchangeInit())),
     ]);
-    report.tpex = await storeFromSources(db, tw, "tpex", [
-      async () => quotesOn(await getJson(fetcher, tpexQuotesUrl(today), exchangeInit), today, parseTpexQuotes),
-      async () => parseTpexClose(await getJson(fetcher, TPEX_CLOSE_URL)),
+  }
+  if (onTpex.size > 0) {
+    report.tpex = await storeFromSources(db, onTpex, "tpex", [
+      async () => quotesOn(await getJson(fetcher, tpexQuotesUrl(today), exchangeInit()), today, parseTpexQuotes),
+      async () => parseTpexClose(await getJson(fetcher, TPEX_CLOSE_URL, exchangeInit())),
     ]);
   }
 
@@ -198,7 +208,7 @@ interface TradedAsset extends HeldAsset {
 /** 逐筆帳戶交易過（含已經賣掉）的共用資產、第一筆交易日、已有的最早價格日，以及回補過的起點 */
 async function tradedSharedAssets(db: Db): Promise<TradedAsset[]> {
   const result = await db.execute(sql`
-    select a.id, a.market, a.symbol, a.currency,
+    select a.id, a.market, a.symbol, a.currency, a.exchange,
            min(t.trade_date)::text "firstDate",
            (select min(p.price_date)::text from stack.price_history p where p.asset_id = a.id) earliest,
            a.metadata->>'priceBackfillFrom' "backfilledFrom"

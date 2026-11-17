@@ -251,6 +251,28 @@ describe("同步行情與每日淨值快照", () => {
     expect(next.twse).toEqual({ stored: 0 });
   });
 
+  it("只問有持股的交易所：只持有上市股就不向櫃買要資料（櫃買的回應有好幾 MB，常逾時）", async () => {
+    await db.execute(sql`update stack.assets set exchange = 'TWSE' where market = 'TW' and symbol = '2330' and created_by is null`);
+    const onlyTwse = fakeFetcher();
+    const report = await syncPrices(db, onlyTwse.fetcher, { today: "2026-10-21" });
+    expect(report.twse.stored).toBe(1);
+    expect(report.tpex).toEqual({ stored: 0 });
+    expect(onlyTwse.calls.filter((u) => u.includes("tpex"))).toEqual([]);
+
+    // 有人持有上櫃股（6488）之後，兩邊都問；上櫃的價格只記給上櫃股
+    await applyAssetRecords(db, "twse-isin", [
+      { market: "TW", symbol: "6488", name: "環球晶", assetType: "stock", exchange: "TPEx", currency: "TWD", metadata: { source: "twse-isin", kind: "stock" } },
+    ]);
+    const snap = await createAccount(db, L.userId, L.portfolioId, { name: "集保", accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" });
+    await createSnapshot(db, L.userId, { clientRequestId: req(), accountId: snap.id, asOfDate: "2026-10-15", positions: [{ asset: { market: "TW", symbol: "6488" }, quantity: "100" }] }, { today: TODAY });
+    const both = fakeFetcher({ tpexDaily: tpexDaily("20261022", [["6488", "850.00"], ["2330", "1.00"]]) });
+    const next = await syncPrices(db, both.fetcher, { today: "2026-10-22" });
+    expect(next.tpex.stored).toBe(2); // 6488 的 10/22（每日行情）與 10/21（OpenAPI）
+    expect(both.calls.filter((u) => u.includes("tpex"))).toHaveLength(2);
+    const rows = await db.execute(sql`select count(*)::int n from stack.price_history p join stack.assets a on a.id = p.asset_id where a.symbol = '2330' and p.source = 'tpex'`);
+    expect((rows as unknown as { rows: { n: number }[] }).rows[0].n).toBe(0);
+  });
+
   it("指定日期的回應若是別天的資料就不收，OpenAPI 照樣補", async () => {
     const { fetcher } = fakeFetcher({ twseDaily: twseDaily("20261020", [["2330", "655.00"]]) });
     const report = await syncPrices(db, fetcher, { today: "2026-10-21" });
