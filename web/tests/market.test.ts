@@ -124,15 +124,55 @@ describe("估值（純函式）", () => {
 let db: Db;
 let L: Awaited<ReturnType<typeof createLedger>>;
 
-/** 假的資料來源：依網址回傳固定內容 */
-function fakeFetcher(overrides: Partial<Record<"twse" | "tpex" | "us" | "fx", unknown>> = {}) {
+/** 證交所 MI_INDEX（指定日期的每日收盤行情；欄位與真實回應相同，資料是假的） */
+const twseDaily = (date: string, rows: [code: string, close: string][]) => ({
+  stat: "OK",
+  date,
+  tables: [
+    { title: "價格指數(臺灣證券交易所)", fields: ["指數", "收盤指數"], data: [["發行量加權股價指數", "44,232.87"]] },
+    {
+      title: "每日收盤行情(全部(不含權證、牛熊證、可展延牛熊證))",
+      fields: ["證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額", "開盤價", "最高價", "最低價", "收盤價", "漲跌(+/-)", "漲跌價差"],
+      data: rows.map(([code, close]) => [code, "名稱", "1,000", "1", "100,000", close, close, close, close, "", "0"]),
+    },
+  ],
+});
+/** 櫃買中心每日行情 dailyQuotes */
+const tpexDaily = (date: string, rows: [code: string, close: string][]) => ({
+  stat: "ok",
+  date,
+  tables: [
+    {
+      title: "上櫃股票行情",
+      fields: ["代號", "名稱", "收盤", "漲跌", "開盤", "最高", "最低", "均價", "成交股數", "成交金額(元)"],
+      data: rows.map(([code, close]) => [code, "名稱", close, "0", close, close, close, close, "1,000", "100,000"]),
+    },
+  ],
+});
+
+type Source = "twseDaily" | "tpexDaily" | "twse" | "tpex" | "us" | "fx";
+
+/** 假的資料來源：依網址回傳固定內容。指定日期的行情預設「沒有資料」（像還沒公布），價格都來自 OpenAPI */
+function fakeFetcher(overrides: Partial<Record<Source, unknown>> = {}) {
   const calls: string[] = [];
   const fetcher = async (url: string) => {
     calls.push(url);
-    const pick = url.includes("twse") ? "twse" : url.includes("tpex") ? "tpex" : url.includes("USStockPrice") ? "us" : "fx";
+    const pick: Source = url.includes("MI_INDEX")
+      ? "twseDaily"
+      : url.includes("dailyQuotes")
+        ? "tpexDaily"
+        : url.includes("twse")
+          ? "twse"
+          : url.includes("tpex")
+            ? "tpex"
+            : url.includes("USStockPrice")
+              ? "us"
+              : "fx";
     const body =
       overrides[pick] ??
       {
+        twseDaily: { stat: "很抱歉，沒有符合條件的資料!" },
+        tpexDaily: tpexDaily("20261021", []),
         twse: [{ Date: "1151021", Code: "2330", ClosingPrice: "650.00" }, { Date: "1151021", Code: "2317", ClosingPrice: "200.00" }],
         tpex: [{ Date: "1151021", SecuritiesCompanyCode: "6488", Close: "844.00" }],
         us: { status: 200, data: [{ date: "2026-10-19", Close: 330 }, { date: "2026-10-20", Close: 340 }] },
@@ -165,6 +205,58 @@ describe("同步行情與每日淨值快照", () => {
     // 再跑一次（同一天）：不重複、不覆寫
     const again = await syncPrices(db, fakeFetcher({ twse: [{ Date: "1151021", Code: "2330", ClosingPrice: "999.00" }] }).fetcher, { today: "2026-10-21" });
     expect(again.twse.stored).toBe(0);
+    const v = await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: "2026-10-21" });
+    expect(v.holdings.find((h) => h.symbol === "2330")?.price).toBe("650");
+  });
+
+  it("收盤後就記當天的價格：指定日期的行情優先，OpenAPI（隔天清晨才更新）補前一個交易日", async () => {
+    await applyAssetRecords(db, "twse-isin", [
+      { market: "TW", symbol: "6488", name: "環球晶", assetType: "stock", exchange: "TPEx", currency: "TWD", metadata: { source: "twse-isin", kind: "stock" } },
+    ]);
+    const snap = await createAccount(db, L.userId, L.portfolioId, { name: "集保", accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" });
+    await createSnapshot(db, L.userId, { clientRequestId: req(), accountId: snap.id, asOfDate: "2026-10-15", positions: [{ asset: { market: "TW", symbol: "6488" }, quantity: "100" }] }, { today: TODAY });
+
+    // 17 點左右的實際情況：MI_INDEX／dailyQuotes 已經是今天（10/21），OpenAPI 還停在昨天（10/20）
+    const { fetcher, calls } = fakeFetcher({
+      twseDaily: twseDaily("20261021", [["2330", "655.00"], ["2317", "201.00"]]),
+      tpexDaily: tpexDaily("20261021", [["6488", "850.00"]]),
+      twse: [{ Date: "1151020", Code: "2330", ClosingPrice: "648.00" }],
+      tpex: [{ Date: "1151020", SecuritiesCompanyCode: "6488", Close: "840.00" }],
+    });
+    const report = await syncPrices(db, fetcher, { today: "2026-10-21" });
+    expect(report).toMatchObject({ twse: { stored: 2 }, tpex: { stored: 2 } });
+    expect(report.twse.error).toBeUndefined();
+    expect(calls.find((u) => u.includes("MI_INDEX"))).toContain("date=20261021");
+    expect(calls.find((u) => u.includes("dailyQuotes"))).toContain("date=2026/10/21");
+
+    const rows = await db.execute(sql`
+      select a.symbol, p.price_date::text d, p.close_price::text c, p.source from stack.price_history p join stack.assets a on a.id = p.asset_id
+      where a.market = 'TW' order by a.symbol, p.price_date`);
+    expect((rows as unknown as { rows: unknown[] }).rows).toEqual([
+      { symbol: "2330", d: "2026-10-20", c: "648.0000000000", source: "twse" },
+      { symbol: "2330", d: "2026-10-21", c: "655.0000000000", source: "twse" },
+      { symbol: "6488", d: "2026-10-20", c: "840.0000000000", source: "tpex" },
+      { symbol: "6488", d: "2026-10-21", c: "850.0000000000", source: "tpex" },
+    ]);
+
+    // 當天的淨值快照用的是當天的收盤價
+    const v = await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: "2026-10-21" });
+    expect(v.holdings.filter((h) => h.symbol !== "AAPL").map((h) => [h.symbol, h.price, h.priceDate])).toEqual([
+      ["2330", "655", "2026-10-21"],
+      ["6488", "850", "2026-10-21"],
+    ]);
+
+    // 隔天 OpenAPI 換成 10/21 的資料，也不會蓋掉已經記下的
+    const next = await syncPrices(db, fakeFetcher({ twse: [{ Date: "1151021", Code: "2330", ClosingPrice: "999.00" }] }).fetcher, { today: "2026-10-22" });
+    expect(next.twse).toEqual({ stored: 0 });
+  });
+
+  it("指定日期的回應若是別天的資料就不收，OpenAPI 照樣補", async () => {
+    const { fetcher } = fakeFetcher({ twseDaily: twseDaily("20261020", [["2330", "655.00"]]) });
+    const report = await syncPrices(db, fetcher, { today: "2026-10-21" });
+    expect(report.twse.error).toBe("回應的日期是 20261020，不是 2026-10-21");
+    // OpenAPI 的 10/21＝650 還是記下了，655 沒有被記成 10/21
+    expect(report.twse.stored).toBe(1);
     const v = await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: "2026-10-21" });
     expect(v.holdings.find((h) => h.symbol === "2330")?.price).toBe("650");
   });

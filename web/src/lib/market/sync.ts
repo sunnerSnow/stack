@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@/lib/db/local";
 import { fxRates, priceHistory } from "@/lib/db/schema";
 import { todayInTaipei } from "@/lib/ledger/input";
+import { type DailyQuote, parseTpexQuotes, parseTwseQuotes, tpexQuotesUrl, twseQuotesUrl } from "@/lib/market/exchange-sources";
 import {
   type ClosePrice,
   finmindFxUrl,
@@ -21,6 +22,8 @@ import {
  * 每天抓收盤價與匯率（排程以資料庫擁有者身分執行）。
  *
  * - 只抓「現在有人持有」的共用資產：逐筆帳戶還有剩餘批次的，或快照帳戶最新快照裡的。
+ * - 台股當天的收盤價用可以指定日期的證交所 MI_INDEX 與櫃買每日行情（收盤後就有）；
+ *   OpenAPI 的全部收盤價要到隔天清晨才更新，只用來補前一個交易日（當天沒抓到時的備援）。
  * - 已經有的那天價格不覆寫（on conflict do nothing）；美股與匯率每次往回抓 10 天，補上漏掉的交易日。
  * - 一個來源失敗不影響其他來源，報告裡會寫是哪一個。
  */
@@ -42,6 +45,9 @@ function defaultFetcher(url: string, init?: RequestInit) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
 }
 
+/** 證交所網站會擋沒有瀏覽器標頭的請求（族群行情的排程也這樣送） */
+const exchangeInit: RequestInit = { headers: { "user-agent": "Mozilla/5.0 (STACK)" } };
+
 /** FinMind 的金鑰（選填）：沒有也能用，只是每小時的次數比較少 */
 const finmindInit = (): RequestInit => (process.env.FINMIND_TOKEN ? { headers: { Authorization: `Bearer ${process.env.FINMIND_TOKEN}` } } : {});
 
@@ -52,6 +58,37 @@ async function getJson(fetcher: Fetcher, url: string, init?: RequestInit): Promi
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
+
+/**
+ * 指定日期的行情回應 → 那天的收盤價。沒有資料（假日、還沒公布）回空陣列；
+ * 有資料時回應上的日期必須就是查詢的那天，對不上就丟錯，不把別天的價格記成這一天。
+ */
+function quotesOn(json: unknown, date: string, parse: (json: unknown) => DailyQuote[]): ClosePrice[] {
+  const quotes = parse(json);
+  if (quotes.length === 0) return [];
+  const stamp = String((json as { date?: unknown } | null)?.date ?? "").trim();
+  if (stamp !== date.replaceAll("-", "")) throw new Error(`回應的日期是 ${stamp || "（沒有）"}，不是 ${date}`);
+  return quotes.map((q) => ({ symbol: q.symbol, date, close: q.close }));
+}
+
+/** 同一個交易所的兩個來源：數量相加、錯誤合併（一個失敗不影響另一個） */
+async function storeFromSources(
+  db: Db,
+  bySymbol: Map<string, HeldAsset>,
+  source: "twse" | "tpex",
+  loaders: (() => Promise<ClosePrice[]>)[],
+): Promise<{ stored: number; error?: string }> {
+  let stored = 0;
+  const errors: string[] = [];
+  for (const load of loaders) {
+    try {
+      stored += await storePrices(db, await load(), bySymbol, source);
+    } catch (e) {
+      errors.push(message(e));
+    }
+  }
+  return errors.length ? { stored, error: errors.join("；") } : { stored };
+}
 
 function minusDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
@@ -112,16 +149,15 @@ export async function syncPrices(db: Db, fetcher: Fetcher = defaultFetcher, opts
   const report: PriceSyncReport = { heldAssets: held.length, twse: { stored: 0 }, tpex: { stored: 0 }, us: { stored: 0, errors: [] }, fx: { stored: 0 } };
 
   if (tw.size > 0) {
-    try {
-      report.twse.stored = await storePrices(db, parseTwseDayAll(await getJson(fetcher, TWSE_DAY_ALL_URL)), tw, "twse");
-    } catch (e) {
-      report.twse.error = message(e);
-    }
-    try {
-      report.tpex.stored = await storePrices(db, parseTpexClose(await getJson(fetcher, TPEX_CLOSE_URL)), tw, "tpex");
-    } catch (e) {
-      report.tpex.error = message(e);
-    }
+    // 先存當天（指定日期），再用 OpenAPI 補前一個交易日；同一天已經有的不會被後者覆寫
+    report.twse = await storeFromSources(db, tw, "twse", [
+      async () => quotesOn(await getJson(fetcher, twseQuotesUrl(today), exchangeInit), today, parseTwseQuotes),
+      async () => parseTwseDayAll(await getJson(fetcher, TWSE_DAY_ALL_URL)),
+    ]);
+    report.tpex = await storeFromSources(db, tw, "tpex", [
+      async () => quotesOn(await getJson(fetcher, tpexQuotesUrl(today), exchangeInit), today, parseTpexQuotes),
+      async () => parseTpexClose(await getJson(fetcher, TPEX_CLOSE_URL)),
+    ]);
   }
 
   for (const asset of us) {

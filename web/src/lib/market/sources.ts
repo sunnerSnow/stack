@@ -3,8 +3,9 @@ import { D } from "@/lib/money/decimal";
 /**
  * 行情與匯率的資料來源（純函式：只解析，不連網、不碰資料庫）。
  *
- * - 台股上市：證交所 OpenAPI STOCK_DAY_ALL（最近一個交易日的全部收盤價）
- * - 台股上櫃：櫃買中心 OpenAPI tpex_mainboard_daily_close_quotes
+ * - 台股上市：證交所 OpenAPI STOCK_DAY_ALL（最近一個交易日的全部收盤價；隔天清晨才更新，所以只拿來補前一天，
+ *   當天的價格用 exchange-sources 的 MI_INDEX）
+ * - 台股上櫃：櫃買中心 OpenAPI tpex_mainboard_daily_close_quotes（同上，當天的用櫃買每日行情 dailyQuotes）
  * - 美股：FinMind USStockPrice（逐檔查，代號的 . 改成 -，例如 BRK.B → BRK-B）
  * - 台股歷史日線（回補）：FinMind TaiwanStockPrice
  * - 匯率：FinMind TaiwanExchangeRate（臺灣銀行牌告），取即期買入與賣出的中價
