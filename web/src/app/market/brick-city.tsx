@@ -674,7 +674,7 @@ export function BrickCity({ overview, local = false }: { overview: MarketOvervie
     </div> : null}
     <div className="city-legend" aria-label="積木資料圖例">
       <span><i className="city-key city-key-in"/>法人買超</span><span><i className="city-key city-key-out"/>法人賣超</span><span><i className="city-key city-key-light"/>淺色＝幅度小</span><span><i className="city-key city-key-zero"/>零</span><span><i className="city-key city-key-missing"/>缺值</span>
-      <p><b>島</b>＝產業　<b>積木塔</b>＝{levelName}　<b>占地</b>＝成交額　<b>層數</b>＝法人{kindLabel(kind)}幅度（相對 1–6 級，整段回放同一比例）</p>
+      <p><b>底板</b>＝產業　<b>積木塔</b>＝{levelName}　<b>占地</b>＝成交額　<b>層數</b>＝法人{kindLabel(kind)}幅度（相對 1–6 級，整段回放同一比例）</p>
     </div>
   </section>;
 }
