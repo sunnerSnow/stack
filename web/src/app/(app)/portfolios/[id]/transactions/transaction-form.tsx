@@ -6,7 +6,7 @@ import { MARKETS, marketFor, useAssetSearch } from "../use-asset-search";
 import { correctTransactionAction, createTransactionAction, type FormState } from "@/app/actions";
 import { formatDecimal } from "@/lib/format";
 import { type CostEstimate, describeFee, describeTax, estimateCosts, type FeeSettings, type TaxAsset } from "@/lib/ledger/costs";
-import { type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
+import { type Phase1Type, SNAPSHOT_ACCOUNT_TYPES, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { D } from "@/lib/money/decimal";
 
 /** 表單欄位的初始值（更正時帶入原交易的內容） */
@@ -29,7 +29,8 @@ export interface TransactionFormValues {
 interface Props {
   portfolioId: string;
   today: string;
-  accounts: { id: string; name: string; currency: string; fees: FeeSettings }[];
+  /** snapshot：快照（快速淨值）帳戶，只能記入金與出金 */
+  accounts: { id: string; name: string; currency: string; fees: FeeSettings; snapshot?: boolean }[];
   initial?: Partial<TransactionFormValues>;
   /** 更正這筆交易：送出時沖銷它，再依表單內容新增一筆 */
   correctionOf?: string;
@@ -49,9 +50,19 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
   const [state, action, pending] = useActionState<FormState, FormData>(submit, {});
   // 每次打開表單產生一個送出識別碼：重複點擊或網路重送都只會入帳一次
   const [clientRequestId] = useState(() => crypto.randomUUID());
-  const [type, setType] = useState<Phase1Type>(initial.type ?? "buy");
   const [accountId, setAccountId] = useState(initial.accountId ?? accounts[0]?.id ?? "");
   const account = accounts.find((a) => a.id === accountId);
+  const allowedFor = (a: Props["accounts"][number] | undefined, t: Phase1Type) => !a?.snapshot || SNAPSHOT_ACCOUNT_TYPES.includes(t);
+  const [type, setType] = useState<Phase1Type>(() => {
+    const wanted = initial.type ?? "buy";
+    return allowedFor(accounts.find((a) => a.id === (initial.accountId ?? accounts[0]?.id)), wanted) ? wanted : "deposit";
+  });
+  // 快照帳戶只顯示入金／出金
+  const typeGroups = account?.snapshot ? TYPE_GROUPS.filter((g) => g.types.every((t) => SNAPSHOT_ACCOUNT_TYPES.includes(t))) : TYPE_GROUPS;
+  function chooseAccount(id: string) {
+    setAccountId(id);
+    if (!allowedFor(accounts.find((a) => a.id === id), type)) setType("deposit");
+  }
   const market = marketFor(account?.currency);
   const [symbol, setSymbol] = useState(initial.symbol ?? "");
   const [quantity, setQuantity] = useState(initial.quantity ?? "");
@@ -100,7 +111,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
       <fieldset>
         <legend className="mb-2 text-[12.5px] font-bold">交易類型</legend>
         <div className="grid gap-3 sm:grid-cols-4">
-          {TYPE_GROUPS.map((g) => (
+          {typeGroups.map((g) => (
             <div key={g.label}>
               <p className="mb-1 text-[11px] text-ink-3">{g.label}</p>
               <div className="flex gap-2">
@@ -114,15 +125,21 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             </div>
           ))}
         </div>
+        {account?.snapshot ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-2">
+            「{account.name}」是快照帳戶，只記入金與出金（算報酬率要知道投入了多少）；買賣、股息由下一份快照反映。現金以最近一份填了現金的快照為準：快照日當天和之前的入金出金已經含在快照裡，不會再加一次。
+          </p>
+        ) : null}
       </fieldset>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="field sm:col-span-1">
           <span>帳戶</span>
-          <select className="input" name="accountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-invalid={invalid("accountId")}>
+          <select className="input" name="accountId" value={accountId} onChange={(e) => chooseAccount(e.target.value)} aria-invalid={invalid("accountId")}>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name}（{a.currency}）
+                {a.name}（{a.currency}
+                {a.snapshot ? " · 快照" : ""}）
               </option>
             ))}
           </select>

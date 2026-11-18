@@ -4,7 +4,7 @@ import { accounts, assets, cashLedger, lotDisposals, positionLots, transactions 
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { D, toPlain } from "@/lib/money/decimal";
 import { requirePortfolio } from "@/lib/services/portfolios";
-import { latestSnapshotsInTx } from "@/lib/services/snapshots";
+import { countsTowardCurrentCash, latestSnapshotsInTx, snapshotCashAnchorsInTx } from "@/lib/services/snapshots";
 import { isEffectiveTransaction } from "@/lib/services/transactions";
 
 export interface HoldingDto {
@@ -109,7 +109,7 @@ export async function getCashBalances(db: Db, userId: string, portfolioId: strin
       .select({ accountId: cashLedger.accountId, currency: cashLedger.currency, amount: sumText(cashLedger.amount) })
       .from(cashLedger)
       .innerJoin(accounts, and(eq(accounts.id, cashLedger.accountId), eq(accounts.userId, userId)))
-      .where(and(eq(cashLedger.userId, userId), eq(accounts.portfolioId, portfolioId)))
+      .where(and(eq(cashLedger.userId, userId), eq(accounts.portfolioId, portfolioId), countsTowardCurrentCash()))
       .groupBy(cashLedger.accountId, cashLedger.currency)
       .orderBy(asc(cashLedger.currency));
     return rows.map((r) => ({ ...r, amount: toPlain(r.amount) }));
@@ -132,7 +132,7 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
       .select({ currency: cashLedger.currency, amount: sumText(cashLedger.amount) })
       .from(cashLedger)
       .innerJoin(accounts, eq(accounts.id, cashLedger.accountId))
-      .where(and(eq(cashLedger.userId, userId), inPortfolio))
+      .where(and(eq(cashLedger.userId, userId), inPortfolio, countsTowardCurrentCash()))
       .groupBy(cashLedger.currency);
 
     const costBasis = await tx
@@ -171,8 +171,9 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
       .innerJoin(accounts, eq(accounts.id, transactions.accountId))
       .where(and(eq(transactions.userId, userId), inPortfolio, isEffectiveTransaction()));
 
-    // 快照模式帳戶：現金與成本取最新快照（沒填的不當成 0，而是標示不完整）
+    // 快照模式帳戶：成本取最新快照、現金取最近一份有填現金的快照（沒填的不當成 0，而是標示不完整）
     const snapshots = await latestSnapshotsInTx(tx, userId, portfolioId);
+    const anchors = await snapshotCashAnchorsInTx(tx, userId, portfolioId);
     const add = (rows: { currency: string; amount: string }[], currency: string, amount: string) => {
       const row = rows.find((r) => r.currency === currency);
       if (row) row.amount = new D(row.amount).plus(amount).toFixed();
@@ -182,8 +183,9 @@ export async function getLedgerSummary(db: Db, userId: string, portfolioId: stri
     let costIncomplete = false;
     for (const s of snapshots) {
       const currency = s.positions[0]?.currency ?? (await accountCurrency(tx, userId, s.accountId));
-      if (s.cashBalance === null) cashIncomplete = true;
-      else add(cash, currency, s.cashBalance);
+      const anchor = anchors.get(s.accountId);
+      if (!anchor) cashIncomplete = true;
+      else add(cash, currency, anchor.cashBalance);
       for (const p of s.positions) {
         if (p.costBasis === null) costIncomplete = true;
         else add(costBasis, p.currency, p.costBasis);

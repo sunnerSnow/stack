@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/lib/db/local";
 import { isUniqueViolation } from "@/lib/db/pg-errors";
-import { accounts, accountSnapshots, assets, importBatches, positionSnapshots } from "@/lib/db/schema";
+import { accounts, accountSnapshots, assets, cashLedger, importBatches, positionSnapshots } from "@/lib/db/schema";
 import { type Tx, withUser } from "@/lib/db/with-user";
 import { AppError, type FieldIssue, issuesFromZod, notFound, validationFailed } from "@/lib/errors";
 import { isoDate, MARKETS, todayInTaipei } from "@/lib/ledger/input";
@@ -16,7 +16,40 @@ import { isUuid, requirePortfolio } from "@/lib/services/portfolios";
  * - 只有快照模式的帳戶可以建快照；每次更新都是一份新的快照，舊的不會被改寫（資料庫只開 insert）。
  * - 快照列出「這天持有的每一檔」：沒列出的就是 0。成本、價格、市值不知道就留空，不當成 0。
  * - 從匯入批次（例如集保 e 存摺）建立的快照會記下批次，並把批次標成已確認。
+ * - 快照帳戶可以另外記入金／出金。目前的現金＝最近一份「有填現金」的快照的現金＋那天之後的入金出金：
+ *   快照日當天和之前的已經含在快照填的現金裡，不再加一次；沒填現金的快照（例如集保匯入）只更新持股，現金照舊往前推。
+ *   從沒填過現金的帳戶，入金出金也先不算進現金（標示「現金未提供」）。
  */
+
+/**
+ * 現金帳本裡算進「目前現金」的列：逐筆帳戶全部；快照帳戶只算最近一份有填現金的快照日之後的。
+ * 快照帳戶從沒填過現金就一筆都不算：那些入金多半已經買成快照裡的股票，算進現金會重複（畫面標「現金未提供」）。
+ * 用在 cash_ledger 的查詢條件裡，查詢必須 join accounts。
+ */
+export function countsTowardCurrentCash(): SQL {
+  return sql`(${accounts.trackingMode} = 'transaction' or ${cashLedger.eventDate} > coalesce(
+    (select max(s.as_of_date) from stack.account_snapshots s
+     where s.account_id = ${cashLedger.accountId} and s.user_id = ${cashLedger.userId} and s.cash_balance is not null),
+    'infinity'::date))`;
+}
+
+export interface SnapshotCashAnchor {
+  accountId: string;
+  /** 最近一份有填現金的快照 */
+  asOfDate: string;
+  cashBalance: string;
+}
+
+/** 每個快照帳戶最近一份有填現金的快照（目前現金的起點）；沒有任何一份填了現金的帳戶不在結果裡 */
+export async function snapshotCashAnchorsInTx(tx: Tx, userId: string, portfolioId: string): Promise<Map<string, SnapshotCashAnchor>> {
+  const rows = await tx
+    .selectDistinctOn([accountSnapshots.accountId], { accountId: accountSnapshots.accountId, asOfDate: accountSnapshots.asOfDate, cashBalance: accountSnapshots.cashBalance })
+    .from(accountSnapshots)
+    .innerJoin(accounts, and(eq(accounts.id, accountSnapshots.accountId), eq(accounts.userId, userId)))
+    .where(and(eq(accountSnapshots.userId, userId), eq(accounts.portfolioId, portfolioId), eq(accounts.trackingMode, "snapshot"), isNotNull(accountSnapshots.cashBalance)))
+    .orderBy(accountSnapshots.accountId, desc(accountSnapshots.asOfDate), desc(accountSnapshots.createdAt));
+  return new Map(rows.map((r) => [r.accountId, { accountId: r.accountId, asOfDate: r.asOfDate, cashBalance: toPlain(r.cashBalance!) }]));
+}
 
 export interface SnapshotPositionDto {
   asset: AssetDto;
@@ -257,11 +290,16 @@ export async function getRecentSnapshots(db: Db, userId: string, accountId: stri
   });
 }
 
-/** 投資組合裡每個快照模式帳戶的最新快照（持倉與現金） */
-export async function getLatestSnapshots(db: Db, userId: string, portfolioId: string): Promise<(SnapshotDto & { accountName: string })[]> {
+/** 每個快照帳戶的最新快照，以及目前現金的起點（最近一份有填現金的快照；從沒填過為 null） */
+export async function getLatestSnapshots(
+  db: Db,
+  userId: string,
+  portfolioId: string,
+): Promise<(SnapshotDto & { accountName: string; cashAnchor: SnapshotCashAnchor | null })[]> {
   return withUser(db, userId, async (tx) => {
     await requirePortfolio(tx, userId, portfolioId);
-    return latestSnapshotsInTx(tx, userId, portfolioId);
+    const anchors = await snapshotCashAnchorsInTx(tx, userId, portfolioId);
+    return (await latestSnapshotsInTx(tx, userId, portfolioId)).map((s) => ({ ...s, cashAnchor: anchors.get(s.accountId) ?? null }));
   });
 }
 

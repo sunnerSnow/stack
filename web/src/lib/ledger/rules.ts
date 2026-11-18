@@ -9,6 +9,12 @@ import { type Dec, ZERO } from "@/lib/money/decimal";
 export const PHASE1_TYPES = ["buy", "sell", "deposit", "withdrawal", "dividend", "interest", "fee", "tax"] as const;
 export type Phase1Type = (typeof PHASE1_TYPES)[number];
 
+/**
+ * 快照（快速淨值）帳戶只能記的類型：外部入金與出金（算報酬率要知道投入了多少）。
+ * 持股、股息、費用都由下一份快照反映，不逐筆記。
+ */
+export const SNAPSHOT_ACCOUNT_TYPES: readonly Phase1Type[] = ["deposit", "withdrawal"];
+
 export type CashEventType = Phase1Type;
 export type TaxKind = "transaction_tax" | "withholding_tax";
 

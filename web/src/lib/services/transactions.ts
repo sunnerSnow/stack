@@ -9,7 +9,7 @@ import { AppError, notFound, validationFailed } from "@/lib/errors";
 import { CurrencyMismatchError, InsufficientPositionError, replayFifo, type TradeEvent } from "@/lib/ledger/fifo";
 import { type CostEstimate, estimateCosts } from "@/lib/ledger/costs";
 import { type NormalizedTransaction, normalizeCorrectionInput, normalizeReversalInput, normalizeTransactionInput } from "@/lib/ledger/input";
-import { cashEffect, isPhase1Type, type Phase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
+import { cashEffect, isPhase1Type, type Phase1Type, SNAPSHOT_ACCOUNT_TYPES, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { type Dec, dec, toDb, toPlain, toPlainOrNull, ZERO } from "@/lib/money/decimal";
 import { type AssetDto, resolveAsset, taxAssetOf, toAssetDto } from "@/lib/services/assets";
 import { feeSettingsOf, isUuid, requirePortfolio } from "@/lib/services/portfolios";
@@ -322,8 +322,8 @@ async function insertTransaction(
     .select({ baseCurrency: portfolios.baseCurrency })
     .from(portfolios)
     .where(and(eq(portfolios.id, account.portfolioId), eq(portfolios.userId, userId)));
-  if (account.trackingMode !== "transaction") {
-    throw new AppError("snapshot_account", "這是快速淨值（快照）帳戶，請用「快速更新庫存」，不能記逐筆交易", 409);
+  if (account.trackingMode !== "transaction" && !SNAPSHOT_ACCOUNT_TYPES.includes(input.type)) {
+    throw new AppError("snapshot_account", "這是快速淨值（快照）帳戶，只能記入金與出金；持股與現金請用「快速更新庫存」", 409);
   }
 
   const rule = TRANSACTION_RULES[input.type];

@@ -8,6 +8,7 @@ import { getPortfolioPerformance } from "@/lib/services/performance";
 import { createAccount } from "@/lib/services/portfolios";
 import { createSnapshot } from "@/lib/services/snapshots";
 import { postTransaction, reverseTransaction } from "@/lib/services/transactions";
+import { getPortfolioValuation } from "@/lib/services/valuations";
 import { AAPL, createLedger, createTestDb, req, TSMC } from "./helpers/db";
 
 describe("XIRR", () => {
@@ -211,6 +212,116 @@ describe("績效：逐日重建淨值", () => {
   });
 });
 
+describe("績效：快照帳戶", () => {
+  let snapId: string;
+  const snapshot = (asOfDate: string, positions: { symbol: string; quantity: string }[], cashBalance?: string) =>
+    createSnapshot(
+      db,
+      L.userId,
+      { clientRequestId: req(), accountId: snapId, asOfDate, cashBalance, positions: positions.map((p) => ({ asset: { market: "TW", symbol: p.symbol }, quantity: p.quantity })) },
+      { today: "2026-10-21" },
+    );
+
+  beforeEach(async () => {
+    db = await createTestDb();
+    L = await createLedger(db);
+    snapId = (await createAccount(db, L.userId, L.portfolioId, { name: "集保", accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" })).id;
+  });
+
+  it("從第一份填了現金的快照開始：期初淨值當投入，之後的入金是外部現金流", async () => {
+    await post({ type: "deposit", tradeDate: "2024-12-20", amount: "50000" }, snapId); // 快照之前：已含在快照裡
+    await snapshot("2024-12-01", [{ symbol: "2330", quantity: "800" }]); // 沒填現金：不從這裡開始
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1000" }], "400000");
+    await post({ type: "deposit", tradeDate: "2025-07-01", amount: "100000" }, snapId);
+    await price("2330", "TW", [
+      ["2024-12-01", "590"],
+      ["2025-01-02", "600"],
+      ["2025-07-01", "660"],
+      ["2026-01-02", "720"],
+    ]);
+    const p = await perf("2026-01-02");
+    // 期初 600,000＋400,000；期末 720,000＋現金 500,000
+    expect(p).toMatchObject({
+      accounts: 2,
+      snapshotAccounts: 1,
+      snapshotAccountsExcluded: 0,
+      from: "2025-01-02",
+      openingValue: "1000000",
+      netContributions: "1100000",
+      endValue: "1220000",
+      totalPnl: "120000",
+      quality: "complete",
+    });
+    expect(p.breakdown).toMatchObject({ snapshotPnl: "120000", unrealized: "0" });
+    expect(p.xirr.status).toBe("ok");
+    // 入金當天：1,160,000 ÷（1,000,000＋100,000）；之後 1,220,000 ÷ 1,160,000 → 累積 1,220/1,100 − 1
+    expect(Number(p.twr.cumulative)).toBeCloseTo(1220 / 1100 - 1, 6);
+    expect(p.series.find((s) => s.date === "2025-01-02")).toMatchObject({ value: "1000000", flow: "1000000" });
+  });
+
+  it("沒填現金的快照只更新持股，現金沿用之前的；下一份填了現金的快照就修正回來", async () => {
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1000" }], "400000");
+    // 3/3 用現金買了 500 股，但這份（像集保匯入）沒填現金：中間的淨值會高估
+    await snapshot("2025-03-03", [{ symbol: "2330", quantity: "1500" }]);
+    await snapshot("2025-04-01", [{ symbol: "2330", quantity: "1500" }], "100000");
+    await price("2330", "TW", [["2025-01-02", "600"]]);
+    const p = await perf("2025-04-01");
+    expect(p.series.find((s) => s.date === "2025-03-03")?.value).toBe("1300000");
+    expect(p).toMatchObject({ endValue: "1000000", totalPnl: "0", netContributions: "1000000" });
+    expect(Number(p.twr.cumulative)).toBeCloseTo(0, 9);
+    expect(p.issues.join()).toContain("集保 2025-03-03 的快照沒填現金");
+  });
+
+  it("同一天兩份快照：持股用後建立的那份，現金用那天最後一份有填的；估值也一樣", async () => {
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1000" }], "400000");
+    // 同一天後來又匯入一份（沒填現金、持股改成 1,200 股）
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1200" }]);
+    await price("2330", "TW", [["2025-01-02", "600"]]);
+    const p = await perf("2025-01-03");
+    expect(p).toMatchObject({ openingValue: "1120000", endValue: "1120000" });
+    const v = await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: "2025-01-03" });
+    expect(v).toMatchObject({ securitiesValue: "720000", cashValue: "400000", cashIncomplete: false });
+  });
+
+  it("逐筆帳戶與快照帳戶一起算：快照帳戶開始那天不算報酬", async () => {
+    await post({ type: "deposit", tradeDate: "2025-01-02", amount: "1000000" });
+    await post({ type: "buy", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "600" });
+    await snapshot("2025-07-01", [{ symbol: "0050", quantity: "100" }], "10000");
+    await price("2330", "TW", [
+      ["2025-01-02", "600"],
+      ["2025-07-01", "660"],
+      ["2026-01-02", "720"],
+    ]);
+    await price("0050", "TW", [
+      ["2025-07-01", "200"],
+      ["2026-01-02", "220"],
+    ]);
+    const p = await perf("2026-01-02");
+    // 逐筆：720,000＋現金 400,000；快照：22,000＋10,000
+    expect(p).toMatchObject({ from: "2025-01-02", endValue: "1152000", netContributions: "1030000", openingValue: "30000", totalPnl: "122000" });
+    expect(p.breakdown).toMatchObject({ unrealized: "120000", snapshotPnl: "2000", fxEffect: null });
+    // 7/1：(1,060,000＋30,000) ÷ (1,000,000＋30,000)；之後 1,152,000 ÷ 1,090,000
+    expect(Number(p.twr.cumulative)).toBeCloseTo(1152 / 1030 - 1, 6);
+  });
+
+  it("開始那天缺價格：期初淨值算不出來，不假裝有報酬", async () => {
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1000" }], "400000");
+    await price("2330", "TW", [["2025-02-03", "600"]]);
+    const p = await perf("2025-03-03");
+    expect(p).toMatchObject({ openingValue: null, netContributions: null, totalPnl: null });
+    expect(p.xirr.status).toBe("no_flows");
+    expect(p.twr.status).toBe("gap");
+    expect(p.issues.join()).toContain("期初淨值算不出來");
+  });
+
+  it("只有沒填現金的快照：不計入並說明怎麼開始", async () => {
+    await snapshot("2025-01-02", [{ symbol: "2330", quantity: "1000" }]);
+    const p = await perf("2025-03-03");
+    expect(p).toMatchObject({ snapshotAccounts: 0, snapshotAccountsExcluded: 1, from: null });
+    expect(p.issues[0]).toContain("填上現金");
+  });
+});
+
 describe("回補歷史價格", () => {
   beforeEach(async () => {
     db = await createTestDb();
@@ -234,6 +345,23 @@ describe("回補歷史價格", () => {
     expect(calls).toHaveLength(1);
     const again = await backfillHistory(db, fetcher, { today: "2026-10-21" });
     expect(again).toMatchObject({ candidates: 0, processed: 0 });
+  });
+
+  it("快照裡的股票也補：從第一份快照日前 10 天起；外幣快照帳戶也補匯率", async () => {
+    const snap = await createAccount(db, L.userId, L.portfolioId, { name: "集保", accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" });
+    await createSnapshot(db, L.userId, { clientRequestId: req(), accountId: snap.id, asOfDate: "2025-03-03", cashBalance: "0", positions: [{ asset: { market: "TW", symbol: "0050" }, quantity: "100" }] }, { today: "2026-10-21" });
+    const usd = await createAccount(db, L.userId, L.portfolioId, { name: "美股快照", accountType: "brokerage", currency: "USD", trackingMode: "snapshot" });
+    await createSnapshot(db, L.userId, { clientRequestId: req(), accountId: usd.id, asOfDate: "2025-05-02", cashBalance: "100", positions: [] }, { today: "2026-10-21" });
+    await price("0050", "TW", [["2026-10-20", "200"]]);
+    const calls: string[] = [];
+    const fetcher = async (url: string) => {
+      calls.push(url);
+      return Response.json({ status: 200, data: [] });
+    };
+    const report = await backfillHistory(db, fetcher, { today: "2026-10-21" });
+    expect(report).toMatchObject({ candidates: 1, processed: 1, errors: [] });
+    expect(calls.find((u) => u.includes("TaiwanStockPrice"))).toContain("data_id=0050&start_date=2025-02-21&end_date=2026-10-19");
+    expect(calls.find((u) => u.includes("TaiwanExchangeRate"))).toContain("start_date=2025-04-22");
   });
 
   it("FinMind 沒有資料的代號：記下補過的起點，不會每天重抓；一次最多處理 maxAssets 檔", async () => {

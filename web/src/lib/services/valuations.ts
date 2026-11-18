@@ -5,7 +5,7 @@ import { type Tx, withUser } from "@/lib/db/with-user";
 import { todayInTaipei } from "@/lib/ledger/input";
 import { D, toDb, ZERO } from "@/lib/money/decimal";
 import { requirePortfolio } from "@/lib/services/portfolios";
-import { latestSnapshotsInTx } from "@/lib/services/snapshots";
+import { countsTowardCurrentCash, latestSnapshotsInTx, snapshotCashAnchorsInTx } from "@/lib/services/snapshots";
 import { isEffectiveTransaction } from "@/lib/services/transactions";
 import { convert, type FxPoint, type PortfolioValuation, type PricePoint, valuePortfolio, type ValuationHolding } from "@/lib/valuation/value";
 
@@ -41,15 +41,18 @@ async function gatherHoldings(tx: Tx, userId: string, portfolioId: string) {
     .select({ currency: cashLedger.currency, amount: sumText(cashLedger.amount) })
     .from(cashLedger)
     .innerJoin(accounts, and(eq(accounts.id, cashLedger.accountId), eq(accounts.userId, userId)))
-    .where(and(eq(cashLedger.userId, userId), eq(accounts.portfolioId, portfolioId)))
+    .where(and(eq(cashLedger.userId, userId), eq(accounts.portfolioId, portfolioId), countsTowardCurrentCash()))
     .groupBy(cashLedger.currency);
   const cash = cashRows.map((c) => ({ currency: c.currency, amount: new D(c.amount).toFixed() }));
 
+  // 快照帳戶的現金：最近一份有填現金的快照（之後的入金出金已在上面的現金帳本裡）
   let cashIncomplete = false;
+  const anchors = await snapshotCashAnchorsInTx(tx, userId, portfolioId);
   for (const s of await latestSnapshotsInTx(tx, userId, portfolioId)) {
     const [account] = await tx.select({ currency: accounts.currency }).from(accounts).where(and(eq(accounts.id, s.accountId), eq(accounts.userId, userId)));
-    if (s.cashBalance === null) cashIncomplete = true;
-    else cash.push({ currency: account.currency, amount: s.cashBalance });
+    const anchor = anchors.get(s.accountId);
+    if (!anchor) cashIncomplete = true;
+    else cash.push({ currency: account.currency, amount: anchor.cashBalance });
     for (const p of s.positions) {
       holdings.push({
         accountId: s.accountId,

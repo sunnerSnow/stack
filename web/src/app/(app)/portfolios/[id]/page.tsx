@@ -353,6 +353,10 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                 const balances = cash.filter((c) => c.accountId === a.id);
                 if (a.trackingMode === "snapshot") {
                   const s = snapshotOf.get(a.id);
+                  const anchor = s?.cashAnchor ?? null;
+                  // 現金帳本裡算進目前現金的部分：最近一份填了現金的快照之後的入金出金
+                  const after = balances.find((b) => b.currency === a.currency)?.amount ?? "0";
+                  const hasAfter = !new D(after).isZero();
                   return (
                     <li key={a.id} className="border-b border-line px-5 py-3.5 sm:border-r">
                       <div className="flex items-center justify-between gap-2">
@@ -369,8 +373,16 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                             </span>
                             <span className="flex items-center justify-between gap-2">
                               <span className="text-xs text-ink-2">現金</span>
-                              {s.cashBalance === null ? <span className="text-xs text-ink-3">未提供</span> : <Amount value={s.cashBalance} currency={a.currency} />}
+                              {anchor === null ? <span className="text-xs text-ink-3">未提供</span> : <Amount value={new D(anchor.cashBalance).plus(after).toFixed()} currency={a.currency} />}
                             </span>
+                            {anchor !== null && (anchor.asOfDate !== s.asOfDate || hasAfter) ? (
+                              <span className="text-xs text-ink-3">
+                                {anchor.asOfDate} 快照的現金{hasAfter ? `，加減之後的入金出金 ${formatDecimal(after)}` : ""}
+                              </span>
+                            ) : null}
+                            {anchor === null ? (
+                              <span className="text-xs text-ink-3">淨值不含這個帳戶的現金（已記的入金出金也先不算），也還不能算績效；到「更新庫存」填上現金就能開始</span>
+                            ) : null}
                           </>
                         ) : (
                           <span className="text-xs text-ink-3">還沒有快照</span>
@@ -379,6 +391,9 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                       <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs font-bold">
                         <Link href={`/portfolios/${id}/accounts/${a.id}/snapshot`} className="hover:underline">
                           更新庫存
+                        </Link>
+                        <Link href={`/portfolios/${id}/transactions/new?account=${a.id}&type=deposit`} className="hover:underline">
+                          記入金／出金
                         </Link>
                         {a.currency === "TWD" ? (
                           <Link href={`/portfolios/${id}/imports/tdcc?account=${a.id}`} className="hover:underline">
@@ -538,7 +553,13 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
     {
       label: `整體投資損益（${base}）`,
       value: p.totalPnl === null ? unavailable("缺少淨投入或期末淨值") : <Pnl value={p.totalPnl} currency={base} />,
-      note: p.netContributions !== null ? <>總淨值 − 淨投入 {formatDecimal(p.netContributions, { maxFraction: 0 })}</> : undefined,
+      note:
+        p.netContributions !== null ? (
+          <>
+            總淨值 − 淨投入 {formatDecimal(p.netContributions, { maxFraction: 0 })}
+            {p.openingValue !== null ? `（含快照帳戶的期初淨值 ${formatDecimal(p.openingValue, { maxFraction: 0 })}）` : ""}
+          </>
+        ) : undefined,
       tone: "",
     },
     {
@@ -568,13 +589,13 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
           <h2 className="mt-1 text-[22px] font-black tracking-[0.04em]">績效</h2>
         </div>
         <span className="text-xs text-on-navy">
+          {p.accounts} 個帳戶{p.snapshotAccounts > 0 ? `（含 ${p.snapshotAccounts} 個快照帳戶）` : ""}
           {p.from ? (
             <>
-              逐筆記帳的帳戶 · <span className="num">{p.from}</span> ～ <span className="num">{p.asOf}</span>（{p.days} 天）
+              {" "}
+              · <span className="num">{p.from}</span> ～ <span className="num">{p.asOf}</span>（{p.days} 天）
             </>
-          ) : (
-            "逐筆記帳的帳戶"
-          )}
+          ) : null}
         </span>
       </div>
       <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -594,6 +615,7 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
             ["股息利息（稅後）", <Amount key="i" value={b.incomeNet} currency={base} />],
             ["單獨記的費用稅費", <Amount key="c" value={b.standaloneCosts} currency={base} />],
             ["交易成本（已含在損益裡）", <Amount key="t" value={b.tradingCosts} currency={base} />],
+            ...(p.snapshotAccounts > 0 ? ([["快照帳戶損益（沒有逐筆紀錄）", <Pnl key="s" value={b.snapshotPnl} currency={base} />]] as [string, React.ReactNode][]) : []),
             ["匯率影響（估算）", b.fxEffect === null ? <span key="f" className="text-on-navy-2">—</span> : <Pnl key="f" value={b.fxEffect} currency={base} />],
           ] as [string, React.ReactNode][]
         ).map(([label, value]) => (
@@ -606,6 +628,9 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
       <p className="mt-4 text-xs leading-relaxed text-on-navy">
         <QualityTag quality={p.quality === "complete" ? "complete" : "partial"} />{" "}
         每天用當天或之前最近的收盤價與匯率重建淨值；持股與現金都以成交日計。TWR 的入金／出金視為當天開盤前發生（先入金才下單）；各項損益以發生日匯率換算，未實現用今天的價格與匯率；匯率影響是整體損益減去各項損益的差額。
+        {p.snapshotAccounts > 0
+          ? "快照帳戶從第一份填了現金的快照開始算，那天的淨值當作投入；之後每天用最新一份快照的持股，現金用最近一份填了現金的快照加減之後的入金出金。兩次快照之間沒記的買賣，損益在下一份快照時才反映。"
+          : ""}
         {p.issues.map((issue) => ` ${issue}。`)}
       </p>
     </section>

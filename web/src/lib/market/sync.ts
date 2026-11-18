@@ -205,25 +205,33 @@ interface TradedAsset extends HeldAsset {
   backfilledFrom: string | null;
 }
 
-/** 逐筆帳戶交易過（含已經賣掉）的共用資產、第一筆交易日、已有的最早價格日，以及回補過的起點 */
+/**
+ * 算績效需要歷史價格的共用資產：逐筆帳戶交易過的（含已經賣掉）與快照裡出現過的；
+ * 第一次出現的日子（交易日或快照日）、已有的最早價格日，以及回補過的起點
+ */
 async function tradedSharedAssets(db: Db): Promise<TradedAsset[]> {
   const result = await db.execute(sql`
     select a.id, a.market, a.symbol, a.currency, a.exchange,
-           min(t.trade_date)::text "firstDate",
+           min(f.first_date)::text "firstDate",
            (select min(p.price_date)::text from stack.price_history p where p.asset_id = a.id) earliest,
            a.metadata->>'priceBackfillFrom' "backfilledFrom"
-    from stack.transactions t
-    join stack.assets a on a.id = t.asset_id
-    where a.created_by is null and t.transaction_type in ('buy', 'sell') and t.reversal_of_id is null
-      and not exists (select 1 from stack.transactions r where r.reversal_of_id = t.id)
+    from (
+      select t.asset_id, t.trade_date first_date from stack.transactions t
+      where t.transaction_type in ('buy', 'sell') and t.reversal_of_id is null
+        and not exists (select 1 from stack.transactions r where r.reversal_of_id = t.id)
+      union all
+      select ps.asset_id, s.as_of_date from stack.position_snapshots ps join stack.account_snapshots s on s.id = ps.snapshot_id
+    ) f
+    join stack.assets a on a.id = f.asset_id
+    where a.created_by is null
     group by a.id
-    order by min(t.trade_date), a.symbol`);
+    order by min(f.first_date), a.symbol`);
   return (Array.isArray(result) ? result : (result as unknown as { rows: TradedAsset[] }).rows) as TradedAsset[];
 }
 
 /**
- * 回補歷史收盤價與匯率（逐筆帳戶算 TWR 需要每天的淨值）。
- * 每檔從第一筆交易日前 10 天補到已有的最早價格前一天；一次最多 maxAssets 檔，其餘下次再補。
+ * 回補歷史收盤價與匯率（算 TWR 需要每天的淨值：逐筆帳戶從第一筆交易起、快照帳戶從第一份快照起）。
+ * 每檔從第一筆交易日（或第一份快照日）前 10 天補到已有的最早價格前一天；一次最多 maxAssets 檔，其餘下次再補。
  * 補過的起點記在資產的 metadata.priceBackfillFrom，FinMind 沒有資料的代號不會每天重抓。
  */
 export async function backfillHistory(db: Db, fetcher: Fetcher = defaultFetcher, opts: { today?: string; maxAssets?: number } = {}): Promise<BackfillReport> {
@@ -251,8 +259,8 @@ export async function backfillHistory(db: Db, fetcher: Fetcher = defaultFetcher,
     }
   }
 
-  // 匯率：從最早一筆「交易幣別與投資組合基準幣別不同」的交易起補；
-  // 選了外幣基準（例如台幣組合比 VOO）的投資組合，從它的第一筆交易起補
+  // 匯率：從最早一筆「交易幣別與投資組合基準幣別不同」的交易（或外幣快照帳戶的第一份快照）起補；
+  // 選了外幣基準（例如台幣組合比 VOO）的投資組合，從它的第一筆交易或快照起補
   try {
     const result = await db.execute(sql`
       select least(
@@ -263,6 +271,14 @@ export async function backfillHistory(db: Db, fetcher: Fetcher = defaultFetcher,
                   join stack.accounts a on a.id = t.account_id join stack.portfolios p on p.id = a.portfolio_id
                   join stack.portfolio_benchmark_settings s on s.portfolio_id = p.id
                   join stack.benchmark_definitions b on b.id = s.benchmark_id
+                 where b.currency <> p.base_currency),
+               (select min(s.as_of_date) from stack.account_snapshots s
+                  join stack.accounts a on a.id = s.account_id join stack.portfolios p on p.id = a.portfolio_id
+                 where a.currency <> p.base_currency),
+               (select min(s.as_of_date) from stack.account_snapshots s
+                  join stack.accounts a on a.id = s.account_id join stack.portfolios p on p.id = a.portfolio_id
+                  join stack.portfolio_benchmark_settings bs on bs.portfolio_id = p.id
+                  join stack.benchmark_definitions b on b.id = bs.benchmark_id
                  where b.currency <> p.base_currency)
              )::text "needFrom",
              (select min(rate_date)::text from stack.fx_rates where base_currency = 'USD' and quote_currency = 'TWD') earliest`);

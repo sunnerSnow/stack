@@ -5,10 +5,11 @@ import { withUser } from "@/lib/db/with-user";
 import { AppError } from "@/lib/errors";
 import type { TdccMovement } from "@/lib/imports/tdcc";
 import { createTdccImport, getImport } from "@/lib/services/imports";
-import { getLedgerSummary } from "@/lib/services/positions";
+import { getCashBalances, getLedgerSummary } from "@/lib/services/positions";
 import { createAccount, setAccountTrackingMode } from "@/lib/services/portfolios";
 import { createSnapshot, getLatestSnapshots, getRecentSnapshots } from "@/lib/services/snapshots";
-import { postTransaction } from "@/lib/services/transactions";
+import { correctTransaction, postTransaction } from "@/lib/services/transactions";
+import { getPortfolioValuation } from "@/lib/services/valuations";
 import { createLedger, createTestDb, createUser, req, TODAY } from "./helpers/db";
 
 let db: Db;
@@ -94,13 +95,64 @@ describe("庫存快照", () => {
     expect(await fields({ positions: [{ asset: tw("9999"), quantity: "1" }] })).toEqual(["positions.0.asset.name", "positions.0.asset.assetType"]);
   });
 
-  it("逐筆交易帳戶不能建快照；快照帳戶不能記交易", async () => {
+  it("逐筆交易帳戶不能建快照；快照帳戶只能記入金與出金", async () => {
     await expectAppError(snap({}, L.accountId), "transaction_account", 409);
+    for (const t of [
+      { type: "buy", asset: tw("2330"), quantity: "1", unitPrice: "100" },
+      { type: "dividend", asset: tw("2330"), amount: "1" },
+      { type: "fee", amount: "1" },
+    ]) {
+      await expectAppError(postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, tradeDate: "2026-03-01", ...t }, { today: TODAY }), "snapshot_account", 409);
+    }
+    const deposit = await postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, type: "deposit", tradeDate: "2026-03-01", amount: "1" }, { today: TODAY });
+    expect(deposit.transaction).toMatchObject({ type: "deposit", accountId: snapAccountId });
+    // 更正也一樣：不能把入金改成買進
     await expectAppError(
-      postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, type: "deposit", tradeDate: "2026-03-01", amount: "1" }, { today: TODAY }),
+      correctTransaction(db, L.userId, deposit.transaction.id, { clientRequestId: req(), accountId: snapAccountId, type: "buy", tradeDate: "2026-03-01", asset: tw("2330"), quantity: "1", unitPrice: "1", reason: "記錯" }, { today: TODAY }),
       "snapshot_account",
       409,
     );
+  });
+
+  it("快照帳戶的現金＝最新快照的現金＋快照日之後的入金出金（快照日當天和之前的已含在快照裡）", async () => {
+    const flow = (type: "deposit" | "withdrawal", tradeDate: string, amount: string) =>
+      postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, type, tradeDate, amount }, { today: TODAY });
+    await postTransaction(db, L.userId, { clientRequestId: req(), accountId: L.accountId, type: "deposit", tradeDate: "2026-03-01", amount: "1000" }, { today: TODAY });
+    await flow("deposit", "2026-10-01", "300"); // 快照之前：已含在快照的 500 裡
+    await snap({ asOfDate: "2026-10-10", cashBalance: "500" });
+    await flow("deposit", "2026-10-10", "50"); // 快照當天：也已含在快照裡
+    await flow("deposit", "2026-10-12", "200");
+    await flow("withdrawal", "2026-10-14", "80");
+
+    const summary = await getLedgerSummary(db, L.userId, L.portfolioId);
+    // 逐筆帳戶 1000 ＋ 快照 500 ＋ 之後的 200 − 80
+    expect(summary.cash).toEqual([{ currency: "TWD", amount: "1620" }]);
+    // 淨入金照實記：所有的入金出金
+    expect(summary.netContributions).toEqual([{ currency: "TWD", amount: "1470" }]);
+    const balances = await getCashBalances(db, L.userId, L.portfolioId);
+    expect(balances.find((b) => b.accountId === snapAccountId)).toMatchObject({ amount: "120" });
+    const v = await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: TODAY });
+    expect(v).toMatchObject({ cashValue: "1620", cashIncomplete: false });
+
+    // 之後的快照沒填現金：現金照舊往前推（500 ＋ 之後的入金出金）
+    await snap({ asOfDate: "2026-10-13" });
+    expect((await getLedgerSummary(db, L.userId, L.portfolioId)).cash).toEqual([{ currency: "TWD", amount: "1620" }]);
+
+    // 新的快照填了現金之後，舊的入金出金都已含在新快照裡
+    await snap({ asOfDate: "2026-10-15", cashBalance: "700" });
+    expect((await getLedgerSummary(db, L.userId, L.portfolioId)).cash).toEqual([{ currency: "TWD", amount: "1700" }]);
+  });
+
+  it("從沒填過現金的快照帳戶：入金出金先不算進現金（多半已買成快照裡的股票），標示現金未提供", async () => {
+    await snap({ asOfDate: "2026-10-10", positions: [{ asset: tw("2330"), quantity: "10" }] });
+    await postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, type: "deposit", tradeDate: "2026-10-12", amount: "1000000" }, { today: TODAY });
+    await postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, type: "withdrawal", tradeDate: "2026-10-13", amount: "5000" }, { today: TODAY });
+    expect(await getLedgerSummary(db, L.userId, L.portfolioId)).toMatchObject({ cash: [], cashIncomplete: true });
+    expect(await getCashBalances(db, L.userId, L.portfolioId)).toEqual([]);
+    expect(await getPortfolioValuation(db, L.userId, L.portfolioId, { asOf: TODAY })).toMatchObject({ cashValue: "0", cashIncomplete: true });
+    // 填了現金之後，只有那天之後的才算
+    await snap({ asOfDate: "2026-10-12", cashBalance: "800000", positions: [{ asset: tw("2330"), quantity: "10" }] });
+    expect((await getLedgerSummary(db, L.userId, L.portfolioId)).cash).toEqual([{ currency: "TWD", amount: "795000" }]);
   });
 
   it("投資組合彙總：快照帳戶的現金與已知成本加進總數，缺的標示不完整", async () => {
@@ -108,10 +160,15 @@ describe("庫存快照", () => {
     await snap({ cashBalance: "500", positions: [{ asset: tw("2330"), quantity: "10", unitCost: "100" }] });
     let summary = await getLedgerSummary(db, L.userId, L.portfolioId);
     expect(summary).toMatchObject({ cash: [{ currency: "TWD", amount: "1500" }], costBasis: [{ currency: "TWD", amount: "1000" }], snapshotAccounts: 1, cashIncomplete: false, costIncomplete: false });
+    // 新快照沒填現金（例如集保匯入）：持股照新的，現金沿用上一份有填的；成本沒填就標示不完整
     await snap({ asOfDate: "2026-10-16", positions: [{ asset: tw("2330"), quantity: "10" }] });
     summary = await getLedgerSummary(db, L.userId, L.portfolioId);
-    expect(summary).toMatchObject({ cash: [{ currency: "TWD", amount: "1000" }], costBasis: [], cashIncomplete: true, costIncomplete: true });
-    expect((await getLatestSnapshots(db, L.userId, L.portfolioId)).map((s) => s.accountName)).toEqual(["國泰（集保）"]);
+    expect(summary).toMatchObject({ cash: [{ currency: "TWD", amount: "1500" }], costBasis: [], cashIncomplete: false, costIncomplete: true });
+    // 從來沒填過現金的快照帳戶才算現金不完整
+    const other = await createAccount(db, L.userId, L.portfolioId, { name: "元大（集保）", accountType: "brokerage", currency: "TWD", trackingMode: "snapshot" });
+    await snap({ positions: [{ asset: tw("2330"), quantity: "1" }] }, other.id);
+    expect(await getLedgerSummary(db, L.userId, L.portfolioId)).toMatchObject({ cash: [{ currency: "TWD", amount: "1500" }], cashIncomplete: true });
+    expect((await getLatestSnapshots(db, L.userId, L.portfolioId)).map((s) => s.accountName).sort()).toEqual(["元大（集保）", "國泰（集保）"]);
   });
 
   it("看不到也不能寫別人的快照", async () => {

@@ -28,7 +28,8 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
     throw error;
   }
   const t = detail.transaction;
-  const accounts = (await listAccounts(db, user.id, id)).filter((a) => a.trackingMode === "transaction");
+  // 快照帳戶也列出來（它的入金出金可以更正；表單只讓快照帳戶選入金／出金）
+  const accounts = await listAccounts(db, user.id, id);
   if (!accounts.some((a) => a.id === t.accountId)) notFound();
   // 沖銷交易、已沖銷或已更正過的交易不能再更正
   if (t.reversalOfId || t.reversedById || !isPhase1Type(t.type)) redirect(`/portfolios/${id}/transactions/${txId}`);
@@ -52,7 +53,7 @@ export default async function CorrectTransactionPage({ params }: PageProps<"/por
         <TransactionForm
           portfolioId={id}
           today={todayInTaipei()}
-          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency, fees: a.fees }))}
+          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency, fees: a.fees, snapshot: a.trackingMode === "snapshot" }))}
           correctionOf={t.id}
           initial={{
             type: t.type,

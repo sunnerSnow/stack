@@ -23,7 +23,7 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const db = await getDb();
     const prices = await syncPrices(db);
-    // 逐筆帳戶交易過的股票補歷史價格（算 TWR 用）；一次最多 40 檔，其餘明天再補
+    // 交易過或快照裡出現過的股票補歷史價格（算 TWR 用）；一次最多 40 檔，其餘明天再補
     const backfill = await backfillHistory(db);
     const benchmarks = await syncBenchmarks(db);
     const valuations = await recordValuations(db);
