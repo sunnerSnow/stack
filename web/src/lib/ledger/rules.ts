@@ -4,9 +4,9 @@ import { type Dec, ZERO } from "@/lib/money/decimal";
  * 交易類型的持倉與現金效果規則（唯一來源）。
  * 使用者輸入的金額一律是正數，正負號只由這裡決定，前端不能自己決定。
  *
- * Phase 1 只開放下列八種；schema 已預留轉帳、分割、調整等類型，之後的 Phase 再開。
+ * 目前開放下列九種；schema 已預留轉帳、分割、調整等類型，之後的 Phase 再開。
  */
-export const PHASE1_TYPES = ["buy", "sell", "deposit", "withdrawal", "dividend", "interest", "fee", "tax"] as const;
+export const PHASE1_TYPES = ["buy", "sell", "deposit", "withdrawal", "dividend", "interest", "fee", "tax", "fee_rebate"] as const;
 export type Phase1Type = (typeof PHASE1_TYPES)[number];
 
 /**
@@ -43,6 +43,8 @@ export const TRANSACTION_RULES: Record<Phase1Type, TransactionRule> = {
   interest: { label: "利息", asset: "forbidden", trade: false, allowsCosts: true, taxKind: "withholding_tax", externalFlow: null, position: null },
   fee: { label: "費用", asset: "forbidden", trade: false, allowsCosts: false, taxKind: null, externalFlow: null, position: null },
   tax: { label: "稅費", asset: "forbidden", trade: false, allowsCosts: false, taxKind: null, externalFlow: null, position: null },
+  // 券商退回的手續費（月退）：現金增加，但不是外部入金，所以會算進損益
+  fee_rebate: { label: "退佣", asset: "forbidden", trade: false, allowsCosts: false, taxKind: null, externalFlow: null, position: null },
 };
 
 export interface Amounts {
@@ -61,6 +63,7 @@ export function totalCosts(a: Amounts): Dec {
  * - 買進：現金減少「成交金額 ＋ 手續費 ＋ 稅 ＋ 其他費用」
  * - 賣出：現金增加「成交金額 − 手續費 − 交易稅 − 其他費用」
  * - 股息／利息：現金增加實際淨額
+ * - 退佣：現金增加退回的金額
  */
 export function cashEffect(type: Phase1Type, a: Amounts): Dec {
   switch (type) {
@@ -71,6 +74,7 @@ export function cashEffect(type: Phase1Type, a: Amounts): Dec {
     case "interest":
       return a.gross.minus(totalCosts(a));
     case "deposit":
+    case "fee_rebate":
       return a.gross;
     case "withdrawal":
     case "fee":

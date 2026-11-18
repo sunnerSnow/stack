@@ -6,7 +6,7 @@ import { withUser } from "@/lib/db/with-user";
 import { AppError } from "@/lib/errors";
 import { getCashBalances, getHoldings, getLedgerSummary } from "@/lib/services/positions";
 import { createAccount } from "@/lib/services/portfolios";
-import { getTransaction, listTransactions, postTransaction } from "@/lib/services/transactions";
+import { getTransaction, listTransactions, postTransaction, reverseTransaction } from "@/lib/services/transactions";
 import { AAPL, createLedger, createTestDb, req, TODAY, TSMC } from "./helpers/db";
 
 let db: Db;
@@ -193,6 +193,28 @@ describe("費用、稅費與現金（規格 14.1、14.2）", () => {
     await post({ type: "tax", tradeDate: "2026-03-01", amount: "12.5" });
     await post({ type: "interest", tradeDate: "2026-03-01", amount: "3" });
     expect(await cash()).toEqual(["TWD -59.5"]);
+  });
+
+  it("退佣（月退）增加現金，不是外部入金、不指定股票；資料庫也擋退佣帶股票", async () => {
+    const { transaction } = await post({ type: "fee_rebate", tradeDate: "2026-03-05", amount: "1234", notes: "2 月份退佣" });
+    expect(transaction).toMatchObject({ type: "fee_rebate", typeLabel: "退佣", externalFlowType: null, asset: null });
+    expect(await cash()).toEqual(["TWD 1234"]);
+    // 淨入金不包含退佣
+    expect((await getLedgerSummary(db, L.userId, L.portfolioId)).netContributions).toEqual([]);
+    // 退佣不能指定股票
+    const err = await expectAppError(post({ type: "fee_rebate", tradeDate: "2026-03-05", amount: "1", asset: TSMC }), "validation_failed", 400);
+    expect(err.issues.map((i) => i.field)).toContain("asset.symbol");
+    const owner = await db
+      .execute(sql`insert into stack.transactions (user_id, account_id, asset_id, transaction_type, trade_date, gross_amount, currency)
+        select ${L.userId}, ${L.accountId}, id, 'fee_rebate', '2026-03-05', 1, 'TWD' from stack.assets where symbol = '2330' and created_by is null`)
+      .then(
+        () => null,
+        (e: { cause?: { message?: string } }) => e.cause?.message ?? String(e),
+      );
+    expect(owner).toMatch(/transactions_fee_rebate_no_asset/);
+    // 記錯可以沖銷
+    await reverseTransaction(db, L.userId, transaction.id, { clientRequestId: req(), reason: "金額記錯" });
+    expect(await cash()).toEqual(["TWD 0"]);
   });
 
   it("有交割日時，現金以交割日入帳", async () => {

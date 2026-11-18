@@ -40,7 +40,7 @@ const TYPE_GROUPS: { label: string; types: Phase1Type[] }[] = [
   { label: "買賣", types: ["buy", "sell"] },
   { label: "資金進出", types: ["deposit", "withdrawal"] },
   { label: "收入", types: ["dividend", "interest"] },
-  { label: "支出", types: ["fee", "tax"] },
+  { label: "費用與退佣", types: ["fee", "tax", "fee_rebate"] },
 ];
 
 const DECIMAL_RE = /^\d{1,18}(\.\d{1,10})?$/;
@@ -110,7 +110,7 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
 
       <fieldset>
         <legend className="mb-2 text-[12.5px] font-bold">交易類型</legend>
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2">
           {typeGroups.map((g) => (
             <div key={g.label}>
               <p className="mb-1 text-[11px] text-ink-3">{g.label}</p>
@@ -125,6 +125,11 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             </div>
           ))}
         </div>
+        {type === "fee_rebate" ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-2">
+            券商退回的手續費（例如每月退佣），填實際入帳的金額。退佣不是外部入金，會算進損益。月退的帳戶，手續費折扣請設成「不打折」，每筆照原價估算，退佣入帳時再記這一筆。
+          </p>
+        ) : null}
         {account?.snapshot ? (
           <p className="mt-2 text-xs leading-relaxed text-ink-2">
             「{account.name}」是快照帳戶，只記入金與出金（算報酬率要知道投入了多少）；買賣、股息由下一份快照反映。現金以最近一份填了現金的快照為準：快照日當天和之前的入金出金已經含在快照裡，不會再加一次。

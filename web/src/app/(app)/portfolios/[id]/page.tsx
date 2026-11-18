@@ -615,6 +615,7 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
             ["股息利息（稅後）", <Amount key="i" value={b.incomeNet} currency={base} />],
             ["單獨記的費用稅費", <Amount key="c" value={b.standaloneCosts} currency={base} />],
             ["交易成本（已含在損益裡）", <Amount key="t" value={b.tradingCosts} currency={base} />],
+            ["手續費退佣", <Amount key="fr" value={b.feeRebates} currency={base} />],
             ...(p.snapshotAccounts > 0 ? ([["快照帳戶損益（沒有逐筆紀錄）", <Pnl key="s" value={b.snapshotPnl} currency={base} />]] as [string, React.ReactNode][]) : []),
             ["匯率影響（估算）", b.fxEffect === null ? <span key="f" className="text-on-navy-2">—</span> : <Pnl key="f" value={b.fxEffect} currency={base} />],
           ] as [string, React.ReactNode][]

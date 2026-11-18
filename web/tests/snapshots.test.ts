@@ -101,6 +101,7 @@ describe("庫存快照", () => {
       { type: "buy", asset: tw("2330"), quantity: "1", unitPrice: "100" },
       { type: "dividend", asset: tw("2330"), amount: "1" },
       { type: "fee", amount: "1" },
+      { type: "fee_rebate", amount: "1" },
     ]) {
       await expectAppError(postTransaction(db, L.userId, { clientRequestId: req(), accountId: snapAccountId, tradeDate: "2026-03-01", ...t }, { today: TODAY }), "snapshot_account", 409);
     }

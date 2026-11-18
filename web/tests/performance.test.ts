@@ -126,6 +126,17 @@ describe("績效：逐日重建淨值", () => {
     expect(p.series).toHaveLength(367);
   });
 
+  it("退佣算進損益（不是外部現金流）：整體損益與 TWR 都包含退回的手續費", async () => {
+    await post({ type: "deposit", tradeDate: "2025-01-02", amount: "1000000" });
+    await post({ type: "buy", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "600" });
+    await post({ type: "fee_rebate", tradeDate: "2025-02-10", amount: "500" });
+    await price("2330", "TW", [["2025-01-02", "600"]]);
+    const p = await perf("2025-03-03");
+    expect(p).toMatchObject({ netContributions: "1000000", endValue: "1000500", totalPnl: "500" });
+    expect(p.breakdown).toMatchObject({ feeRebates: "500", unrealized: "0", standaloneCosts: "0" });
+    expect(Number(p.twr.cumulative)).toBeCloseTo(0.0005, 9);
+  });
+
   it("期中再入金 50 萬：TWR 不受入金影響，XIRR 依時間加權", async () => {
     await post({ type: "deposit", tradeDate: "2025-01-02", amount: "1000000" });
     await post({ type: "buy", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "600" });

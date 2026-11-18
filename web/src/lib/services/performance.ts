@@ -73,9 +73,11 @@ export interface PerformanceDto {
     standaloneCosts: string | null;
     /** 買賣、股息裡的手續費與稅（已含在已實現／未實現與股息裡，只是列出來） */
     tradingCosts: string | null;
+    /** 券商退回的手續費（月退；會增加損益） */
+    feeRebates: string | null;
     /** 快照帳戶的損益 = 期末淨值 − 期初淨值 − 之後的淨入金（沒有逐筆紀錄，無法再拆）；沒有快照帳戶為 null */
     snapshotPnl: string | null;
-    /** 匯率影響估算 = 整體損益 −（已實現＋未實現＋股息利息 − 單獨費用稅費＋快照帳戶損益）；逐筆交易全是基準幣別時為 null */
+    /** 匯率影響估算 = 整體損益 −（已實現＋未實現＋股息利息 − 單獨費用稅費＋退佣＋快照帳戶損益）；逐筆交易全是基準幣別時為 null */
     fxEffect: string | null;
   };
   quality: "complete" | "partial";
@@ -142,7 +144,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
     simpleReturn: null,
     xirr: { status: "no_flows", rate: null, reason },
     twr: { status: "too_short", cumulative: null, annualized: null, from: null, to: null, days: 0, reason },
-    breakdown: { realized: null, unrealized: null, incomeNet: null, standaloneCosts: null, tradingCosts: null, snapshotPnl: null, fxEffect: null },
+    breakdown: { realized: null, unrealized: null, incomeNet: null, standaloneCosts: null, tradingCosts: null, feeRebates: null, snapshotPnl: null, fxEffect: null },
     quality: "partial",
     issues: [reason],
     benchmark: null,
@@ -390,6 +392,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   const realized = sumIn(realizedRows.map((r) => ({ amount: new D(r.amount), currency: r.currency, date: r.date })));
   const incomeNet = sumIn(txs.filter((t) => t.type === "dividend" || t.type === "interest").map((t) => ({ amount: new D(t.cash ?? 0), currency: t.currency, date: t.date })));
   const standaloneCosts = sumIn(txs.filter((t) => t.type === "fee" || t.type === "tax").map((t) => ({ amount: new D(t.cash ?? 0).negated(), currency: t.currency, date: t.date })));
+  const feeRebates = sumIn(txs.filter((t) => t.type === "fee_rebate").map((t) => ({ amount: new D(t.cash ?? 0), currency: t.currency, date: t.date })));
   const tradingCosts = sumIn(
     txs
       .filter((t) => t.type === "buy" || t.type === "sell" || t.type === "dividend" || t.type === "interest")
@@ -422,8 +425,8 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   const totalPnl = endValue !== null && !flowsUnknown ? endValue.minus(netContrib) : null;
   const multiCurrency = txs.some((t) => t.currency !== base);
   const fxEffect =
-    multiCurrency && totalPnl && realized && unrealized && incomeNet && standaloneCosts && (started.length === 0 || snapshotPnl)
-      ? totalPnl.minus(realized.plus(unrealized).plus(incomeNet).minus(standaloneCosts).plus(snapshotPnl ?? ZERO))
+    multiCurrency && totalPnl && realized && unrealized && incomeNet && standaloneCosts && feeRebates && (started.length === 0 || snapshotPnl)
+      ? totalPnl.minus(realized.plus(unrealized).plus(incomeNet).minus(standaloneCosts).plus(feeRebates).plus(snapshotPnl ?? ZERO))
       : null;
 
   for (const [assetId, from] of missingPriceFrom) issues.push(`${symbols.get(assetId) ?? assetId} 在 ${from} 起沒有收盤價（歷史價格會在每天的排程裡回補）`);
@@ -506,6 +509,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
       incomeNet: fmt(incomeNet),
       standaloneCosts: fmt(standaloneCosts),
       tradingCosts: fmt(tradingCosts),
+      feeRebates: fmt(feeRebates),
       snapshotPnl: fmt(snapshotPnl),
       fxEffect: fmt(fxEffect),
     },
