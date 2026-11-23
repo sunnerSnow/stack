@@ -253,7 +253,7 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
               <p className="sh-n">05 — Holdings</p>
               <h2>持倉</h2>
             </div>
-            <span className="text-xs text-ink-2">逐筆帳戶依 FIFO 批次；快照帳戶取最新快照</span>
+            <span className="text-xs text-ink-2">逐筆帳戶依 FIFO 批次；快照帳戶取最新快照。點股票名稱或「AI 研究」看持股明細與研究摘要</span>
           </div>
           {holdings.length === 0 && snapshotHoldings.length === 0 ? (
             <p className="p-6 text-sm text-ink-2">目前沒有持倉。記一筆「買進」，或匯入集保 e 存摺建立庫存快照後，這裡會顯示數量與成本。</p>
@@ -279,10 +279,13 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     return (
                       <tr key={`${h.accountId}:${h.assetId}`}>
                         <td>
-                          <Link href={`/portfolios/${id}/holdings/${h.assetId}`} className="hover:underline" title="持股明細與 AI 研究摘要">
+                          <Link href={`/portfolios/${id}/holdings/${h.assetId}`} className="underline decoration-dotted underline-offset-4 hover:decoration-solid" title="持股明細與 AI 研究摘要">
                             <span className="font-bold num">{h.symbol}</span> <span className="text-ink-2">{h.name}</span>
                           </Link>
                           <span className="tag ml-2">{MARKET_LABEL[h.market] ?? h.market}</span>
+                          <Link href={`/portfolios/${id}/holdings/${h.assetId}`} className="tag tag-sea ml-1 whitespace-nowrap">
+                            AI 研究
+                          </Link>
                         </td>
                         <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
                         <td className="r">
@@ -311,10 +314,13 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     return (
                       <tr key={`${h.accountId}:${h.asset.id}`}>
                         <td>
-                          <Link href={`/portfolios/${id}/holdings/${h.asset.id}`} className="hover:underline" title="持股明細與 AI 研究摘要">
+                          <Link href={`/portfolios/${id}/holdings/${h.asset.id}`} className="underline decoration-dotted underline-offset-4 hover:decoration-solid" title="持股明細與 AI 研究摘要">
                             <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
                           </Link>
                           <span className="tag ml-2">{MARKET_LABEL[h.asset.market] ?? h.asset.market}</span>
+                          <Link href={`/portfolios/${id}/holdings/${h.asset.id}`} className="tag tag-sea ml-1 whitespace-nowrap">
+                            AI 研究
+                          </Link>
                         </td>
                         <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
                         <td className="r">
