@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { AppError } from "@/lib/errors";
 import { formatDateTime, formatDecimal, MARKET_LABEL } from "@/lib/format";
-import { isAiConfigured } from "@/lib/research/claude";
+import { aiProvider } from "@/lib/research/generator";
 import type { FactKind, ResearchFact } from "@/lib/research/input";
 import { REPORT_SECTIONS, SECTION_LABEL } from "@/lib/research/report";
 import { getPortfolio } from "@/lib/services/portfolios";
@@ -40,11 +40,11 @@ export default async function HoldingPage({ params, searchParams }: PageProps<"/
     throw error;
   }
   const { asset } = overview;
-  const configured = isAiConfigured();
+  const provider = aiProvider();
   const disabledReason = !overview.supported
     ? "AI 研究摘要目前只支援台股。"
-    : !configured
-      ? "還沒有設定 AI 服務（伺服器缺少 ANTHROPIC_API_KEY）。"
+    : !provider
+      ? "還沒有設定 AI 服務（伺服器缺少 GROQ_API_KEY 或 ANTHROPIC_API_KEY）。"
       : quota.used >= quota.limit
         ? `今天已經產生 ${quota.limit} 份，明天再試。`
         : null;
@@ -138,7 +138,7 @@ export default async function HoldingPage({ params, searchParams }: PageProps<"/
           <GenerateResearchButton portfolioId={id} assetId={asset.id} disabledReason={disabledReason} hasReport={reports.length > 0} />
           <p className="text-xs leading-relaxed text-ink-2">
             AI 只根據下方「用到的資料」整理，每句結論都標出引用的資料編號；這不是投資建議。法人買超或族群資金流入是觀察訊號，不代表股價會上漲。
-            產生時會把這些資料送到 Anthropic 的 Claude 處理：持股只送比重與報酬率，不含金額、股數與帳戶。
+            {provider ? `產生時會把這些資料送到 ${provider.label} 處理：` : "產生時會把這些資料送到外部的 AI 服務處理："}持股只送比重與報酬率，不含金額、股數與帳戶。
           </p>
           {report ? <ReportView report={report} /> : <p className="text-sm text-ink-2">還沒有研究摘要。{disabledReason === null ? "按上方的按鈕產生第一份。" : ""}</p>}
         </div>

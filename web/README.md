@@ -51,7 +51,7 @@ npm run dev          # http://localhost:3000
    - `DATABASE_URL`：Supabase「Connect」裡的 **Transaction pooler**（port 6543）連線字串
    - Vercel 另外要設 `CRON_SECRET`（至少 16 個隨機字元），每天同步資產主檔與行情的排程會帶著它呼叫 `/api/cron/sync-assets`、`/api/cron/sync-prices`
    - 選填 `FINMIND_TOKEN`：FinMind 的免費金鑰（美股與匯率）；不設也能用，只是每小時的次數比較少
-   - 選填 `ANTHROPIC_API_KEY`：AI 研究摘要用的 Claude API 金鑰；不設時持股頁的「產生研究摘要」按鈕停用，其他功能照常
+   - 選填 `GROQ_API_KEY`（Groq 免費方案，到 console.groq.com 申請，不用綁卡）或 `ANTHROPIC_API_KEY`（Claude，付費）：AI 研究摘要用，兩個都設時用 Claude；都不設時持股頁的「產生研究摘要」按鈕停用，其他功能照常
 4. Authentication → URL Configuration（`https://supabase.com/dashboard/project/<ref>/auth/url-configuration`）把 Site URL 設成網站網址，並把 `https://<網址>/auth/callback` 加進 Redirect URLs（註冊確認信會回到這裡）。
 5. Supabase 內建寄信每小時只能寄很少封、而且只寄給組織成員；開放給別人註冊前要設定自訂 SMTP。
 
@@ -238,9 +238,10 @@ tests/                 Vitest
 
 - 投資組合的持倉表點股票名稱，進到持股頁（`/portfolios/[id]/holdings/[assetId]`）。目前只支援台股；使用者按「產生研究摘要」才會呼叫 AI，每人每天最多 10 份（成功與失敗都算）。
 - 程式先整理輸入快照（`src/lib/research/`）：每一則事實有編號、資料日期與來源。P＝持股（只有占總淨值的比重與未實現報酬率，不送金額、股數與帳戶）、T＝技術指標（`market_daily` 收盤價，除權息以參考價還原；均線、期間報酬、Wilder RSI、近一年高低點、量能比，版本 ta-v1）、F＝資金面（個股強度與動能、近 5／20 日外資與投信買賣超；所屬族群、產業、板塊的 rot-v2 指標）、N＝新聞（FinMind TaiwanStockNews 近 14 天，只有標題、日期、來源與網址，最多 20 則）。缺少的資料列成資料缺口。
-- 模型 `claude-opus-5-5`（effort medium），用固定格式輸出（摘要、技術面、資金面、新聞重點、風險與不確定性、資料缺口），每句都要引用事實編號；引用對不上或沒有引用的句子不顯示，記在 `validation`。被安全機制拒絕時由伺服器端改用備援模型（`fallbacks: "default"`）。提示詞規定只能用提供的資料、不給買賣建議、不把相關寫成因果、法人買超不等於會上漲。
+- AI 服務依環境變數選（`src/lib/research/generator.ts`）：設了 `ANTHROPIC_API_KEY` 用 Claude（`claude-opus-5-5`、effort medium，被安全機制拒絕時由伺服器端改用備援模型 `fallbacks: "default"`）；否則設了 `GROQ_API_KEY` 用 Groq 免費方案（`openai/gpt-oss-120b`、reasoning low、嚴格 JSON Schema；Groq 預設不保留推論請求的內容）。免費方案每分鐘約 8,000 tokens，Groq 以「輸入＋輸出上限」計算，所以輸出上限 3,500，提示裡每則事實只送編號、項目、數值、日期，來源依類別列一次（最多約 3,800 tokens）。頁面會寫出資料送到哪一家。
+- 兩家都用同一份提示與固定格式（摘要、技術面、資金面、新聞重點、風險與不確定性、資料缺口），每句都要引用事實編號；引用對不上或沒有引用的句子不顯示，記在 `validation`。提示詞規定只能用提供的資料、不給買賣建議、不把相關寫成因果、法人買超不等於會上漲。
 - `ai_research_reports` 只能新增：每次產生另存一份，保存輸入快照（含 SHA-256）、內容、模型、提示版本與 token 用量；AI 拒絕、超過長度、格式不符也記一份失敗的。金鑰錯誤、流量限制、連不上等沒有產生內容的錯誤不記、也不算額度。
-- 持股頁的 Server Action 設 `maxDuration = 240`（Vercel Hobby 開 Fluid compute 最多 300 秒）；呼叫 AI 的逾時 90 秒、重試 1 次。
+- 持股頁的 Server Action 設 `maxDuration = 240`（Vercel Hobby 開 Fluid compute 最多 300 秒）；呼叫 AI 的逾時 Claude 90 秒、Groq 60 秒，各重試 1 次。
 
 ## Phase 1 沒有做的事
 

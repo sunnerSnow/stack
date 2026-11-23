@@ -10,7 +10,11 @@ import { aiResearchReports, marketGroupMembers, marketGroups, priceHistory } fro
 import { withUser } from "@/lib/db/with-user";
 import { AppError } from "@/lib/errors";
 import { todayInTaipei } from "@/lib/ledger/input";
-import { type GeneratedReport, interpretResponse, type ResearchGenerator } from "@/lib/research/claude";
+import type Groq from "groq-sdk";
+import { interpretResponse } from "@/lib/research/claude";
+import { aiProvider } from "@/lib/research/generator";
+import { interpretGroqResponse, REPORT_JSON_SCHEMA } from "@/lib/research/groq";
+import type { GeneratedReport, ResearchGenerator } from "@/lib/research/types";
 import { adjustCloses, computeIndicators, type DailyBar, wilderRsi } from "@/lib/research/indicators";
 import { amountText, assembleResearchInput, lotsText, type ResearchInput } from "@/lib/research/input";
 import { fetchNews, MAX_NEWS, parseFinmindNews } from "@/lib/research/news";
@@ -160,8 +164,11 @@ describe("AI 研究的輸入快照", () => {
     expect(input.gaps).toContain("個股的法人買賣超有缺值（交易所只列有法人成交的日子）");
     // 提示詞裡有每則事實的編號與資料缺口
     const prompt = userPrompt(input);
-    expect(prompt).toContain('"id":"N1"');
+    expect(prompt).toContain('{"id":"N1","label":"法說會前瞻","value":"東森","date":"2026-11-21 10:00"}');
     expect(prompt).toContain("- 個股的法人買賣超有缺值");
+    // 來源依類別只列一次（省 token），每則事實不再重複
+    expect(prompt.split("證交所／櫃買中心每日收盤行情").length - 1).toBe(1);
+    expect(prompt).toContain("- N＝新聞（label 是標題，value 是媒體）：FinMind TaiwanStockNews");
   });
 
   it("資料都沒有時，列出缺口而不是捏造數字", () => {
@@ -258,6 +265,60 @@ describe("解讀 Claude 的回應", () => {
     expect(interpretResponse(message({ content: [{ type: "text", text: "{not json", citations: null }] }))).toMatchObject({ status: "failed", error: "AI 的輸出格式不符，無法解析" });
     const rescued = interpretResponse(message({ model: "claude-opus-4-8", usage: { input_tokens: 1, output_tokens: 1, iterations: [{ type: "fallback_message" }] } }));
     expect(rescued).toMatchObject({ status: "completed", model: "claude-opus-4-8", fallbackUsed: true });
+  });
+});
+
+describe("Groq（免費方案）", () => {
+  const good: ReportContent = { summary: [{ text: "比重約 12%", refs: ["P1"] }], technical: [], flows: [], news: [], risks: [], dataGaps: [] };
+  const completion = (content: string | null, finish: string | null = "stop") =>
+    ({
+      id: "chatcmpl-test",
+      object: "chat.completion",
+      created: 0,
+      model: "openai/gpt-oss-120b",
+      choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", content }, logprobs: null }],
+      usage: { prompt_tokens: 3200, completion_tokens: 900, total_tokens: 4100 },
+    }) as unknown as Groq.Chat.ChatCompletion;
+
+  it("正常結束：解析並驗證 JSON，記下用量", () => {
+    expect(interpretGroqResponse(completion(JSON.stringify(good)))).toEqual({
+      status: "completed",
+      content: good,
+      model: "openai/gpt-oss-120b",
+      promptVersion: PROMPT_VERSION,
+      usage: { inputTokens: 3200, outputTokens: 900, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      stopReason: "stop",
+      fallbackUsed: false,
+      error: null,
+    });
+  });
+
+  it("超過長度、不是 JSON、欄位不符、沒有正常結束都是失敗", () => {
+    expect(interpretGroqResponse(completion(JSON.stringify(good), "length"))).toMatchObject({ status: "failed", error: "AI 的輸出超過長度上限，沒有完成" });
+    expect(interpretGroqResponse(completion("{oops"))).toMatchObject({ status: "failed", error: "AI 的輸出格式不符，無法解析" });
+    expect(interpretGroqResponse(completion(JSON.stringify({ summary: [] })))).toMatchObject({ status: "failed", error: "AI 的輸出格式不符，無法解析" });
+    expect(interpretGroqResponse(completion(null, "tool_calls"))).toMatchObject({ status: "failed", error: "AI 沒有正常結束（tool_calls）" });
+  });
+
+  it("送給 Groq 的 JSON Schema 符合嚴格模式：每個物件都關閉額外欄位、欄位全部必填", () => {
+    expect(REPORT_JSON_SCHEMA).not.toHaveProperty("$schema");
+    const visit = (node: unknown): void => {
+      if (!node || typeof node !== "object") return;
+      const n = node as Record<string, unknown>;
+      if (n.type === "object") {
+        expect(n.additionalProperties).toBe(false);
+        expect([...(n.required as string[])].sort()).toEqual(Object.keys(n.properties as object).sort());
+      }
+      Object.values(n).forEach(visit);
+    };
+    visit(REPORT_JSON_SCHEMA);
+    expect(Object.keys(REPORT_JSON_SCHEMA.properties as object)).toEqual(["summary", "technical", "flows", "news", "risks", "dataGaps"]);
+  });
+
+  it("選 AI 服務：有 Claude 金鑰用 Claude，否則用 Groq，都沒有就停用", () => {
+    expect(aiProvider({})).toBeNull();
+    expect(aiProvider({ GROQ_API_KEY: "x" })).toMatchObject({ id: "groq", model: "openai/gpt-oss-120b" });
+    expect(aiProvider({ GROQ_API_KEY: "x", ANTHROPIC_API_KEY: "y" })).toMatchObject({ id: "claude", model: "claude-opus-5-5" });
   });
 });
 

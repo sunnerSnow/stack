@@ -1,4 +1,5 @@
-import type { ResearchInput } from "@/lib/research/input";
+import type { FactKind, ResearchInput } from "@/lib/research/input";
+import { NEWS_SOURCE } from "@/lib/research/news";
 
 /** 提示詞改了就換版本：報告記下用的是哪一版，舊報告可以對照 */
 export const PROMPT_VERSION = "holding-research-v1";
@@ -29,10 +30,23 @@ export const SYSTEM_PROMPT = `你是 STACK 投資平台的研究助理，替使�
 - 每句 80 字以內。summary 2～4 句；technical、flows、news 各 0～5 句；risks 1～5 句。某一類完全沒有資料時給空陣列，並在 dataGaps 說明。
 - dataGaps 列出缺少、過舊或不足以判斷的資料，可以參考使用者訊息裡的「已知的資料缺口」。`;
 
+const PREFIX_LABEL: Record<FactKind, string> = { position: "P＝持股", technical: "T＝技術面", flow: "F＝資金面", news: "N＝新聞（label 是標題，value 是媒體）" };
+
+/** 每則事實只送編號、項目、數值、日期；來源依類別列一次（省 token，免費方案每分鐘的額度有限） */
 export function userPrompt(input: ResearchInput): string {
-  const facts = input.facts.map((f) => JSON.stringify({ id: f.id, kind: f.kind, label: f.label, value: f.value, date: f.date, source: f.source })).join("\n");
+  const facts = input.facts.map((f) => JSON.stringify({ id: f.id, label: f.label, value: f.value, date: f.date })).join("\n");
+  const kinds = [...new Set(input.facts.map((f) => f.kind))];
+  const sources = kinds
+    .map((k) => {
+      const list = [...new Set(input.facts.filter((f) => f.kind === k).map((f) => (k === "news" ? NEWS_SOURCE : f.source)))];
+      return `- ${PREFIX_LABEL[k]}：${list.join("；")}`;
+    })
+    .join("\n");
   const gaps = input.gaps.length > 0 ? input.gaps.map((g) => `- ${g}`).join("\n") : "- （沒有）";
   return `以下是 ${input.asset.name}（${input.asset.symbol}）的資料，資料整理日期 ${input.asOf}（台北時間）。
+
+編號開頭與資料來源：
+${sources || "- （沒有資料）"}
 
 <facts>
 ${facts}

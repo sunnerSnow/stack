@@ -7,11 +7,12 @@ import { withUser } from "@/lib/db/with-user";
 import { AppError, notFound } from "@/lib/errors";
 import { todayInTaipei } from "@/lib/ledger/input";
 import { D } from "@/lib/money/decimal";
-import { generateWithClaude, type GeneratedReport, type ResearchGenerator } from "@/lib/research/claude";
+import { aiProvider } from "@/lib/research/generator";
 import { computeIndicators } from "@/lib/research/indicators";
 import { assembleResearchInput, type GroupContext, type GroupLevel, INPUT_VERSION, type ResearchInput, type StockFlowContext } from "@/lib/research/input";
 import { fetchNews } from "@/lib/research/news";
 import { hasClaims, type ReportContent, type ReportValidation, validateReport } from "@/lib/research/report";
+import type { GeneratedReport, ResearchGenerator } from "@/lib/research/types";
 import { getRotation } from "@/lib/services/market";
 import { getPortfolioValuation } from "@/lib/services/valuations";
 import type { ValuedHolding } from "@/lib/valuation/value";
@@ -182,11 +183,13 @@ export async function generateHoldingReport(
 ): Promise<{ id: string; status: "completed" | "failed" }> {
   const overview = await getHoldingOverview(db, userId, portfolioId, assetId);
   if (!overview.supported) throw new AppError("unsupported_market", "AI 研究摘要目前只支援台股", 400);
+  const generate = opts.generator ?? aiProvider()?.generate;
+  if (!generate) throw new AppError("ai_not_configured", "還沒有設定 AI 服務（GROQ_API_KEY 或 ANTHROPIC_API_KEY）", 503);
   const quota = await getResearchQuota(db, userId);
   if (quota.used >= quota.limit) throw new AppError("quota_exceeded", `今天已經產生 ${quota.limit} 份研究摘要，明天再試`, 429);
 
   const input = await buildResearchInput(db, userId, overview, { fetcher: opts.fetcher });
-  const generated: GeneratedReport = await (opts.generator ?? generateWithClaude)(input);
+  const generated: GeneratedReport = await generate(input);
 
   let status = generated.status;
   let error = generated.error;

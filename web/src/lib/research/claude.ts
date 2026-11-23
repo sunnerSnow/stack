@@ -3,55 +3,27 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { logError } from "@/lib/api/http";
 import { AppError } from "@/lib/errors";
-import type { ResearchInput } from "@/lib/research/input";
 import { PROMPT_VERSION, SYSTEM_PROMPT, userPrompt } from "@/lib/research/prompt";
-import { REPORT_SCHEMA, type ReportContent } from "@/lib/research/report";
+import { REPORT_SCHEMA } from "@/lib/research/report";
+import type { GeneratedReport, ReportUsage, ResearchGenerator } from "@/lib/research/types";
 
 /**
- * 呼叫 Claude 產生研究摘要（固定格式輸出）。
- * - 金鑰只從 ANTHROPIC_API_KEY 讀，不寫進程式也不記錄。
+ * 呼叫 Claude 產生研究摘要（固定格式輸出，付費；設了 ANTHROPIC_API_KEY 才會用）。
+ * - 金鑰只從環境變數讀，不寫進程式也不記錄。
  * - 被安全機制拒絕時，由伺服器端改用備援模型重跑（fallbacks: "default"）。
- * - 沒有產生內容就失敗的錯誤（金鑰、流量、連線）丟 AppError，不留紀錄；
- *   已經產生內容但不能用的（拒絕、超過長度、格式不符）回傳 failed，照樣記成一份報告（用量也算）。
  */
-export const RESEARCH_MODEL = "claude-opus-5-5";
+export const CLAUDE_MODEL = "claude-opus-5-5";
 const MAX_TOKENS = 16_000;
 const TIMEOUT_MS = 90_000;
 const REPORT_FORMAT = betaZodOutputFormat(REPORT_SCHEMA);
 
-export interface ReportUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-}
-
-export interface GeneratedReport {
-  status: "completed" | "failed";
-  /** 解析好的報告（還沒做引用檢查）；失敗時 null */
-  content: ReportContent | null;
-  /** 實際產生回應的模型（備援時會跟要求的不同） */
-  model: string;
-  promptVersion: string;
-  usage: ReportUsage;
-  stopReason: string | null;
-  fallbackUsed: boolean;
-  error: string | null;
-}
-
-export type ResearchGenerator = (input: ResearchInput) => Promise<GeneratedReport>;
-
-export function isAiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
-
 export const generateWithClaude: ResearchGenerator = async (input) => {
-  if (!isAiConfigured()) throw new AppError("ai_not_configured", "還沒有設定 AI 服務（ANTHROPIC_API_KEY）", 503);
+  if (!process.env.ANTHROPIC_API_KEY) throw new AppError("ai_not_configured", "還沒有設定 Claude（ANTHROPIC_API_KEY）", 503);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: TIMEOUT_MS, maxRetries: 1 });
   let response: Anthropic.Beta.BetaMessage;
   try {
     response = await client.beta.messages.create({
-      model: RESEARCH_MODEL,
+      model: CLAUDE_MODEL,
       max_tokens: MAX_TOKENS,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
@@ -64,7 +36,6 @@ export const generateWithClaude: ResearchGenerator = async (input) => {
   }
   return interpretResponse(response);
 };
-
 
 /** 把 API 回應轉成報告：先看 stop_reason，再解析固定格式的 JSON */
 export function interpretResponse(response: Anthropic.Beta.BetaMessage): GeneratedReport {
