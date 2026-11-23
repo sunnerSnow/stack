@@ -120,7 +120,8 @@ export async function createTdccImport(db: Db, userId: string, raw: unknown): Pr
 
 async function loadImport(tx: Tx, userId: string, id: string): Promise<ImportDto | null> {
   const [b] = await tx.select().from(importBatches).where(and(eq(importBatches.id, id), eq(importBatches.userId, userId)));
-  if (!b) return null;
+  // 券商成交明細另外在 trade-imports.ts 處理
+  if (!b || b.brokerFormat !== "tdcc_passbook_pdf") return null;
   const meta = b.metadata as { header: TdccHeader; derived: DerivedHoldings };
   const symbols = meta.derived.holdings.map((h) => h.symbol);
   const found = symbols.length
@@ -138,7 +139,7 @@ async function loadImport(tx: Tx, userId: string, id: string): Promise<ImportDto
   return {
     id: b.id,
     accountId: b.accountId,
-    brokerFormat: b.brokerFormat,
+    brokerFormat: "tdcc_passbook_pdf",
     fileName: b.fileName,
     status: b.status,
     rowCount: b.rowCount,
@@ -164,7 +165,7 @@ export async function listImports(db: Db, userId: string, accountId: string): Pr
     const rows = await tx
       .select({ id: importBatches.id })
       .from(importBatches)
-      .where(and(eq(importBatches.userId, userId), eq(importBatches.accountId, accountId)))
+      .where(and(eq(importBatches.userId, userId), eq(importBatches.accountId, accountId), eq(importBatches.brokerFormat, "tdcc_passbook_pdf")))
       .orderBy(desc(importBatches.createdAt))
       .limit(20);
     const out: ImportDto[] = [];

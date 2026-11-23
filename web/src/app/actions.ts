@@ -16,6 +16,7 @@ import { setPortfolioBenchmark } from "@/lib/services/benchmarks";
 import { createTdccImport } from "@/lib/services/imports";
 import { createAccount, createPortfolio, listAccounts, updateAccountFees } from "@/lib/services/portfolios";
 import { createSnapshot } from "@/lib/services/snapshots";
+import { confirmTradeImport, createTradeImport, getTradeImport } from "@/lib/services/trade-imports";
 import { correctTransaction, postTransaction, reverseTransaction } from "@/lib/services/transactions";
 
 /**
@@ -187,6 +188,49 @@ export async function createTdccImportAction(
   } catch (error) {
     return toFormState(error);
   }
+}
+
+/**
+ * 券商成交明細：瀏覽器已經解析好成交列（PDF 不會送到這裡）。可以順便新建一個逐筆記帳的台幣帳戶。
+ * 回傳待確認的批次，畫面接著到預覽頁補期初持股、確認匯入。
+ */
+export async function createTradeImportAction(
+  portfolioId: string,
+  payload: { accountId?: string; newAccountName?: string; fileName: string; fileHash: string; header: unknown; totals: unknown; rows: unknown },
+): Promise<ImportActionResult> {
+  const user = await sessionOrRedirect();
+  try {
+    const db = await getDb();
+    // 新帳戶跟批次在同一個資料庫交易裡建立：檢查沒過不會留下空帳戶
+    if (!payload.newAccountName) {
+      const accounts = await listAccounts(db, user.id, portfolioId);
+      if (!accounts.some((a) => a.id === payload.accountId)) return { error: "請選擇這個投資組合裡的帳戶", fieldErrors: { accountId: "請選擇帳戶" } };
+    }
+    const { newAccountName, ...rest } = payload;
+    const batch = await createTradeImport(db, user.id, newAccountName ? { ...rest, accountId: undefined } : rest, newAccountName ? { newAccount: { portfolioId, name: newAccountName } } : {});
+    revalidatePath(`/portfolios/${portfolioId}`);
+    return { done: true, importId: batch.id, accountId: batch.accountId };
+  } catch (error) {
+    return toFormState(error);
+  }
+}
+
+/** 確認匯入：補上期初持股的平均成本，記下所有成交 */
+export async function confirmTradeImportAction(portfolioId: string, importId: string, payload: { openings: { assetId: string; unitCost: string }[] }): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  let target: string;
+  try {
+    const db = await getDb();
+    const batch = await getTradeImport(db, user.id, importId);
+    const accounts = await listAccounts(db, user.id, portfolioId);
+    if (!accounts.some((a) => a.id === batch.accountId)) return { error: "找不到這筆匯入紀錄" };
+    const result = await confirmTradeImport(db, user.id, importId, payload);
+    target = `/portfolios/${portfolioId}?imported=${result.imported}&openings=${result.openings}&skipped=${result.duplicates}`;
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}`);
+  redirect(target);
 }
 
 export async function createSnapshotAction(portfolioId: string, payload: Record<string, unknown>): Promise<FormState> {

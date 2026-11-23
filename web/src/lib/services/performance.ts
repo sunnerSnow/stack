@@ -20,6 +20,7 @@ import { isEffectiveTransaction } from "@/lib/services/transactions";
  *   開始那天的淨值當作一筆投入（期初淨值），之後的入金出金是外部現金流；兩次快照之間沒記的買賣，損益在下一份快照時反映。
  *   沒有任何一份填了現金的快照帳戶不計入（畫面會說明）。
  * - 外部現金流只有入金與出金；股息、買賣不是外部現金流。現金流以發生日匯率換算成基準幣別（交易上有記匯率就用那個）。
+ *   「轉入持股」是從外面投入的股票：以轉入當天的市值當作一筆投入（成本只影響已實現／未實現損益）。
  * - TWR：現金流視為當天開盤前發生（先入金才下單），逐日連乘；XIRR：入金為負、出金為正、期末淨值為正。
  * - 基準比較：基準值換算成基準幣別（外幣基準含匯率變動），與投資組合用同一段日期；
  *   基準休市的日子沿用之前最近一個交易日的值（最多 14 天），再久就算缺資料，不補造。
@@ -58,7 +59,7 @@ export interface PerformanceDto {
   endValue: string | null;
   /** 淨投入 = 入金 − 出金（發生日匯率）＋快照帳戶的期初淨值 */
   netContributions: string | null;
-  /** 快照帳戶開始計算那天的淨值合計（已含在淨投入裡）；沒有快照帳戶為 null */
+  /** 不是現金的投入：快照帳戶開始那天的淨值＋轉入持股當天的市值（已含在淨投入裡）；都沒有為 null */
   openingValue: string | null;
   /** 整體投資損益 = 期末淨值 − 淨投入 */
   totalPnl: string | null;
@@ -256,6 +257,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   const snapState = new Map<string, { positions: SnapshotPosition[]; cash: Dec; opening: Dec | null; netFlow: Dec; value: Dec | null }>();
   let openingTotal = ZERO;
   let openingUnknown = false;
+  let hasTransferIn = false;
   const carriedCash: string[] = [];
 
   /** 一檔持股在某天的市值（基準幣別）；缺價格或匯率回 null */
@@ -290,12 +292,27 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
 
     for (const t of byDate.get(d) ?? []) {
       if (t.cash !== null) cash.set(t.currency, (cash.get(t.currency) ?? ZERO).plus(t.cash));
-      if (t.assetId && (t.type === "buy" || t.type === "sell")) {
+      if (t.assetId && (t.type === "buy" || t.type === "sell" || t.type === "transfer_in")) {
         assetCurrency.set(t.assetId, t.currency);
         const q = new D(t.quantity!);
-        qty.set(t.assetId, (qty.get(t.assetId) ?? ZERO).plus(t.type === "buy" ? q : q.negated()));
+        qty.set(t.assetId, (qty.get(t.assetId) ?? ZERO).plus(t.type === "sell" ? q.negated() : q));
       }
       if (t.type === "deposit" || t.type === "withdrawal") addFlow(t);
+      if (t.type === "transfer_in") {
+        // 轉入的股票以當天的市值當作投入（開盤前）；缺價格或匯率就算不出投入了多少
+        const value = marketValue(t.assetId!, t.currency, new D(t.quantity!), d);
+        hasTransferIn = true;
+        if (value === null || flow === null) {
+          flow = null;
+          flowsUnknown = true;
+          openingUnknown = true;
+        } else {
+          flow = flow.plus(value);
+          netContrib = netContrib.plus(value);
+          openingTotal = openingTotal.plus(value);
+          flows.push({ date: d, amount: value.negated().toNumber() });
+        }
+      }
     }
 
     let value: Dec | null = ZERO;
@@ -424,8 +441,10 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
 
   const totalPnl = endValue !== null && !flowsUnknown ? endValue.minus(netContrib) : null;
   const multiCurrency = txs.some((t) => t.currency !== base);
+  // 轉入持股的投入是市值、損益卻用成本算，差額分不出是不是匯率造成的，就不估匯率影響
   const fxEffect =
-    multiCurrency && totalPnl && realized && unrealized && incomeNet && standaloneCosts && feeRebates && (started.length === 0 || snapshotPnl)
+    multiCurrency &&
+    !hasTransferIn && totalPnl && realized && unrealized && incomeNet && standaloneCosts && feeRebates && (started.length === 0 || snapshotPnl)
       ? totalPnl.minus(realized.plus(unrealized).plus(incomeNet).minus(standaloneCosts).plus(feeRebates).plus(snapshotPnl ?? ZERO))
       : null;
 
@@ -435,7 +454,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
   else if (negativeCashDays > 0) issues.push(`有 ${negativeCashDays} 天現金為負，可能少記了入金；投入的資金被低估，報酬率可能失真`);
   if (flows.length < 2 && !flowsUnknown) issues.push("沒有入金紀錄：整體損益與報酬率需要知道投入了多少資金");
   if (excludedSnapshots > 0) issues.push(`${excludedSnapshots} 個快照帳戶還沒有填了現金的快照，不計入績效（到「更新庫存」填上現金就能開始算）`);
-  if (openingUnknown) issues.push("有快照帳戶開始那天缺價格或匯率，期初淨值算不出來");
+  if (openingUnknown) issues.push("有快照帳戶開始那天或轉入持股那天缺價格或匯率，投入的市值算不出來");
   if (carriedCash.length > 0) issues.push(`${carriedCash.slice(0, 3).join("、")}${carriedCash.length > 3 ? " 等" : ""} 的快照沒填現金，現金沿用之前的快照加減入金出金`);
 
   // 基準：每天用當天或之前最近一個交易日的值（最多往前 14 天），換算成基準幣別
@@ -498,7 +517,7 @@ async function performanceInTx(tx: Tx, userId: string, portfolioId: string, asOf
     days: daysBetween(start, asOf),
     endValue: fmt(endValue),
     netContributions: flowsUnknown ? null : netContrib.toFixed(),
-    openingValue: started.length === 0 || openingUnknown ? null : openingTotal.toFixed(),
+    openingValue: (started.length === 0 && !hasTransferIn) || openingUnknown ? null : openingTotal.toFixed(),
     totalPnl: fmt(totalPnl),
     simpleReturn: totalPnl && !flowsUnknown ? simpleReturn(totalPnl.toNumber(), netContrib.toNumber()) : null,
     xirr: xirrResult,

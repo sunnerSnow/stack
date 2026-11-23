@@ -47,7 +47,7 @@ function CurrencyLines({ items, pnl = false }: { items: CurrencyAmount[]; pnl?: 
 export default async function PortfolioPage({ params, searchParams }: PageProps<"/portfolios/[id]">) {
   const user = await requireUser();
   const { id } = await params;
-  const { posted, duplicate, recalc, corrected, snapshot: savedSnapshot } = await searchParams;
+  const { posted, duplicate, recalc, corrected, snapshot: savedSnapshot, imported, openings: importedOpenings, skipped } = await searchParams;
   const db = await getDb();
 
   const portfolio = await loadOrNotFound(getPortfolio(db, user.id, id));
@@ -97,6 +97,9 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
             <Link href={`/portfolios/${id}/imports/tdcc`} className="btn">
               匯入集保 e 存摺
             </Link>
+            <Link href={`/portfolios/${id}/imports/trades`} className="btn">
+              匯入券商成交明細
+            </Link>
           </div>
         </div>
         <div className="relative">
@@ -119,6 +122,14 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
         <p className="success">
           已建立「{justSaved.accountName}」{justSaved.asOfDate} 的庫存快照：{justSaved.positions.length} 檔
           {justSaved.cashBalance !== null ? `、現金 ${formatDecimal(justSaved.cashBalance)}` : "（沒填現金）"}。之前的快照都保留著。
+        </p>
+      ) : null}
+
+      {typeof imported === "string" ? (
+        <p className="success">
+          已匯入 {imported} 筆成交
+          {importedOpenings && importedOpenings !== "0" ? `，並補上 ${importedOpenings} 筆期初持股` : ""}
+          {skipped && skipped !== "0" ? `；${skipped} 筆之前已經入帳過，已略過` : ""}。明細沒有入金與出金，要算報酬率請另外記下投入的資金。
         </p>
       ) : null}
 
@@ -557,7 +568,7 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
         p.netContributions !== null ? (
           <>
             總淨值 − 淨投入 {formatDecimal(p.netContributions, { maxFraction: 0 })}
-            {p.openingValue !== null ? `（含快照帳戶的期初淨值 ${formatDecimal(p.openingValue, { maxFraction: 0 })}）` : ""}
+            {p.openingValue !== null ? `（含快照帳戶的期初淨值與轉入持股的市值 ${formatDecimal(p.openingValue, { maxFraction: 0 })}）` : ""}
           </>
         ) : undefined,
       tone: "",
@@ -631,6 +642,9 @@ function PerformancePanel({ p }: { p: PerformanceDto }) {
         每天用當天或之前最近的收盤價與匯率重建淨值；持股與現金都以成交日計。TWR 的入金／出金視為當天開盤前發生（先入金才下單）；各項損益以發生日匯率換算，未實現用今天的價格與匯率；匯率影響是整體損益減去各項損益的差額。
         {p.snapshotAccounts > 0
           ? "快照帳戶從第一份填了現金的快照開始算，那天的淨值當作投入；之後每天用最新一份快照的持股，現金用最近一份填了現金的快照加減之後的入金出金。兩次快照之間沒記的買賣，損益在下一份快照時才反映。"
+          : ""}
+        {p.openingValue !== null
+          ? "轉入持股以轉入當天的市值當作投入，所以整體損益從那天起算；已實現／未實現則用你填的平均成本，兩者的差額是轉入前就有的漲跌。"
           : ""}
         {p.issues.map((issue) => ` ${issue}。`)}
       </p>

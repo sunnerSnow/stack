@@ -98,8 +98,8 @@ function findColumns(items: PdfTextItem[]): Columns | null {
   return { withdrawalMax: (w + d) / 2, depositMax: (d + b) / 2, balanceMax: p === null ? b + 80 : (b + p) / 2 };
 }
 
-/** 同一列：y 相差 2.5 以內 */
-function groupRows(items: PdfTextItem[]): PdfTextItem[][] {
+/** 同一列：y 相差 2.5 以內（券商成交明細的解析也用） */
+export function groupRows(items: PdfTextItem[]): PdfTextItem[][] {
   const rows: { y: number; items: PdfTextItem[] }[] = [];
   for (const item of [...items].sort((a, b) => b.y - a.y || a.x - b.x)) {
     const row = rows.find((r) => Math.abs(r.y - item.y) <= 2.5);
@@ -131,7 +131,7 @@ function pageText(items: PdfTextItem[]): string {
  * PDF 的字型常把「月」「日」「至」對應成康熙部首（⽉ U+2F49、⽇ U+2F47…），全形數字與冒號也很常見；
  * 先做 NFKC 正規化，名稱與檔頭才比對得到。
  */
-const normalizePages = (pages: PdfPage[]): PdfPage[] =>
+export const normalizePages = (pages: PdfPage[]): PdfPage[] =>
   pages.map((p) => ({ items: p.items.map((i) => ({ ...i, str: i.str.normalize("NFKC") })) }));
 
 export function parseTdccPassbook(rawPages: PdfPage[]): TdccParseResult {

@@ -217,6 +217,18 @@ describe("費用、稅費與現金（規格 14.1、14.2）", () => {
     expect(await cash()).toEqual(["TWD 0"]);
   });
 
+  it("轉入持股：建立批次（成本＝股數 × 平均成本）、不動現金；之後賣出用這個成本算已實現", async () => {
+    const t = await post({ type: "transfer_in", tradeDate: "2026-01-02", asset: TSMC, quantity: "1000", unitPrice: "500" });
+    expect(t.transaction).toMatchObject({ type: "transfer_in", typeLabel: "轉入持股", externalFlowType: "contribution", grossAmount: "500000" });
+    expect(await cash()).toEqual([]);
+    expect((await getHoldings(db, L.userId, L.portfolioId))[0]).toMatchObject({ quantity: "1000", costBasis: "500000" });
+    await sell("2026-03-02", "400", "600", { fee: "0", tax: "0" });
+    expect((await getHoldings(db, L.userId, L.portfolioId))[0]).toMatchObject({ quantity: "600", costBasis: "300000", realizedPnl: "40000" });
+    // 轉入不另外填費用；沖銷已經被賣掉一部分的轉入會讓之後的賣出持倉不足
+    await expectAppError(post({ type: "transfer_in", tradeDate: "2026-01-02", asset: TSMC, quantity: "1", unitPrice: "1", fee: "1" }), "validation_failed", 400);
+    await expectAppError(reverseTransaction(db, L.userId, t.transaction.id, { clientRequestId: req() }), "insufficient_position", 409);
+  });
+
   it("有交割日時，現金以交割日入帳", async () => {
     const { transaction } = await buy("2026-03-02", "1", "100", { settlementDate: "2026-03-04" });
     const rows = await withUser(db, L.userId, (tx) => tx.execute(sql`select event_date::text d from stack.cash_ledger where transaction_id = ${transaction.id}`));

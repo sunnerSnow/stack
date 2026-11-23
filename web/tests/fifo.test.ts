@@ -23,6 +23,32 @@ function ev(type: "buy" | "sell", tradeDate: string, quantity: string, price: st
 const s = (d: { toFixed(): string }) => d.toFixed();
 
 describe("FIFO 持倉引擎", () => {
+  it("現股當沖的賣出先配同一天買進的批次；一般賣出照樣 FIFO", () => {
+    const old = ev("buy", "2026-01-05", "1000", "100");
+    const intraday = ev("buy", "2026-03-05", "1000", "120");
+    const dayTradeSell = { ...ev("sell", "2026-03-05", "1000", "125"), dayTrade: true };
+    const { lots, disposals } = replayFifo([old, intraday, dayTradeSell]);
+    expect(disposals.map((d) => [d.lotSourceTransactionId, s(d.realizedPnl)])).toEqual([[intraday.transactionId, "5000"]]);
+    expect(lots.map((l) => [l.sourceTransactionId, s(l.remainingQuantity)])).toEqual([
+      [old.transactionId, "1000"],
+      [intraday.transactionId, "0"],
+    ]);
+    // 同一天的買進不夠：剩下的照 FIFO 從最早的批次補
+    const big = { ...ev("sell", "2026-03-05", "1500", "125"), dayTrade: true };
+    expect(replayFifo([old, intraday, big]).disposals.map((d) => [d.lotSourceTransactionId, s(d.quantity)])).toEqual([
+      [intraday.transactionId, "1000"],
+      [old.transactionId, "500"],
+    ]);
+    // 沒標當沖：照 FIFO 先賣最早的
+    const normal = ev("sell", "2026-03-05", "1000", "125");
+    expect(replayFifo([old, intraday, normal]).disposals.map((d) => d.lotSourceTransactionId)).toEqual([old.transactionId]);
+    // 同一天的轉入持股（期初持股）不算當沖的買進：當沖賣出還是配當天的買進
+    const opening = { ...ev("buy", "2026-03-05", "1000", "90"), transferIn: true };
+    const buy = ev("buy", "2026-03-05", "1000", "120");
+    const sell = { ...ev("sell", "2026-03-05", "1000", "125"), dayTrade: true };
+    expect(replayFifo([opening, buy, sell]).disposals.map((d) => d.lotSourceTransactionId)).toEqual([buy.transactionId]);
+  });
+
   it("買入 100 股 × 100 元、手續費 20：批次成本 10,020、單位成本 100.20", () => {
     const { lots } = replayFifo([ev("buy", "2026-01-05", "100", "100", { fee: "20" })]);
     expect(lots).toHaveLength(1);

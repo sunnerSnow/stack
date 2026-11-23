@@ -138,27 +138,30 @@ export async function listAccounts(db: Db, userId: string, portfolioId: string):
 
 /** 建立帳戶；沒帶 fees 就用預設（台幣券商帳戶開啟估算，其他不估算） */
 export async function createAccount(db: Db, userId: string, portfolioId: string, raw: unknown): Promise<AccountDto> {
+  return withUser(db, userId, (tx) => createAccountInTx(tx, userId, portfolioId, raw));
+}
+
+/** 在呼叫端的資料庫交易裡建帳戶（例如匯入時順便新建：之後的步驟失敗，帳戶也一起回滾） */
+export async function createAccountInTx(tx: Tx, userId: string, portfolioId: string, raw: unknown): Promise<AccountDto> {
   const parsed = accountInputSchema.safeParse(raw);
   if (!parsed.success) throw validationFailed(issuesFromZod(parsed.error));
   const rawFees = (raw as { fees?: unknown } | null)?.fees;
   const fees = rawFees === undefined || parsed.data.trackingMode === "snapshot" ? defaultFeeSettings(parsed.data) : normalizeFeeSettings(rawFees);
-  return withUser(db, userId, async (tx) => {
-    await requirePortfolio(tx, userId, portfolioId);
-    const [row] = await tx
-      .insert(accounts)
-      .values({
-        userId,
-        portfolioId,
-        name: parsed.data.name,
-        brokerName: parsed.data.brokerName ?? null,
-        accountType: parsed.data.accountType,
-        currency: parsed.data.currency,
-        trackingMode: parsed.data.trackingMode ?? "transaction",
-        ...fees,
-      })
-      .returning();
-    return toAccountDto(row);
-  });
+  await requirePortfolio(tx, userId, portfolioId);
+  const [row] = await tx
+    .insert(accounts)
+    .values({
+      userId,
+      portfolioId,
+      name: parsed.data.name,
+      brokerName: parsed.data.brokerName ?? null,
+      accountType: parsed.data.accountType,
+      currency: parsed.data.currency,
+      trackingMode: parsed.data.trackingMode ?? "transaction",
+      ...fees,
+    })
+    .returning();
+  return toAccountDto(row);
 }
 
 /**

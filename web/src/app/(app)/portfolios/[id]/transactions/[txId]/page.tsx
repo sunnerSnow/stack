@@ -49,7 +49,16 @@ export default async function TransactionPage({ params, searchParams }: PageProp
     ],
     ["其他費用", <Amount key="o" value={t.otherCost} maxFraction={10} />],
     ["現金影響", <Amount key="c" value={t.cashAmount} currency={t.currency} maxFraction={10} signed />],
-    ["外部現金流", t.externalFlowType === "contribution" ? "入金（外部投入）" : t.externalFlowType === "withdrawal" ? "出金（外部提領）" : "否"],
+    [
+      "外部現金流",
+      t.externalFlowType === "contribution"
+        ? t.type === "transfer_in"
+          ? "轉入的股票（外部投入，以轉入當天的市值計）"
+          : "入金（外部投入）"
+        : t.externalFlowType === "withdrawal"
+          ? "出金（外部提領）"
+          : "否",
+    ],
     ...(t.type === "sell" ? ([["現股當沖", t.dayTrade ? "是（證交稅 0.15%）" : "否"]] as [string, React.ReactNode][]) : []),
     ["來源", t.source === "manual" ? "手動輸入" : t.source],
     ["備註", t.notes ?? "—"],

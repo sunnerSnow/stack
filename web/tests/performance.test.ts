@@ -137,6 +137,21 @@ describe("績效：逐日重建淨值", () => {
     expect(Number(p.twr.cumulative)).toBeCloseTo(0.0005, 9);
   });
 
+  it("轉入持股：以轉入當天的市值當作投入，轉入前的漲幅不算報酬；已實現仍用平均成本", async () => {
+    // 成本 400、轉入那天市值 600、之後漲到 660 全部賣掉
+    await post({ type: "transfer_in", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "400" });
+    await post({ type: "sell", tradeDate: "2025-03-03", asset: TSMC, quantity: "1000", unitPrice: "660", fee: "0", tax: "0" });
+    await price("2330", "TW", [
+      ["2025-01-02", "600"],
+      ["2025-03-03", "660"],
+    ]);
+    const p = await perf("2025-03-03");
+    expect(p).toMatchObject({ openingValue: "600000", netContributions: "600000", endValue: "660000", totalPnl: "60000" });
+    expect(p.breakdown).toMatchObject({ realized: "260000", unrealized: "0" });
+    expect(Number(p.twr.cumulative)).toBeCloseTo(0.1, 9);
+    expect(p.xirr.status).toBe("ok");
+  });
+
   it("期中再入金 50 萬：TWR 不受入金影響，XIRR 依時間加權", async () => {
     await post({ type: "deposit", tradeDate: "2025-01-02", amount: "1000000" });
     await post({ type: "buy", tradeDate: "2025-01-02", asset: TSMC, quantity: "1000", unitPrice: "600" });
@@ -322,7 +337,7 @@ describe("績效：快照帳戶", () => {
     expect(p).toMatchObject({ openingValue: null, netContributions: null, totalPnl: null });
     expect(p.xirr.status).toBe("no_flows");
     expect(p.twr.status).toBe("gap");
-    expect(p.issues.join()).toContain("期初淨值算不出來");
+    expect(p.issues.join()).toContain("投入的市值算不出來");
   });
 
   it("只有沒填現金的快照：不計入並說明怎麼開始", async () => {

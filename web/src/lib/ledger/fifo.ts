@@ -22,6 +22,10 @@ export interface TradeEvent {
   tax: Dec;
   otherCost: Dec;
   currency: string;
+  /** 現股當沖的賣出：先配同一天買進的批次（跟券商與稅法對當沖的處理一致），不夠再照 FIFO */
+  dayTrade?: boolean;
+  /** 轉入持股（期初持股）開的批次：當沖不會優先配它，即使日期剛好是同一天 */
+  transferIn?: boolean;
 }
 
 export interface Lot {
@@ -105,6 +109,7 @@ export function replayFifo(events: TradeEvent[]): { lots: Lot[]; disposals: Disp
   const ordered = [...events].sort(compareTradeEvents);
   const lots: Lot[] = [];
   const disposals: Disposal[] = [];
+  const transferredIn = new Set<string>();
 
   for (const ev of ordered) {
     if (ev.type === "buy") {
@@ -118,11 +123,14 @@ export function replayFifo(events: TradeEvent[]): { lots: Lot[]; disposals: Disp
         remainingCost: cost,
         costCurrency: ev.currency,
       });
+      if (ev.transferIn) transferredIn.add(ev.transactionId);
       continue;
     }
 
-    // 賣出：從最早仍有剩餘數量的批次開始消耗
-    const open = lots.filter((l) => l.remainingQuantity.greaterThan(0));
+    // 賣出：從最早仍有剩餘數量的批次開始消耗；當沖賣出先消耗同一天買進的批次
+    const remaining = lots.filter((l) => l.remainingQuantity.greaterThan(0));
+    const sameDayBuy = (l: Lot) => l.acquiredDate === ev.tradeDate && !transferredIn.has(l.sourceTransactionId);
+    const open = ev.dayTrade ? [...remaining.filter(sameDayBuy), ...remaining.filter((l) => !sameDayBuy(l))] : remaining;
     const available = open.reduce((s, l) => s.plus(l.remainingQuantity), ZERO);
     if (available.lessThan(ev.quantity)) {
       throw new InsufficientPositionError(ev.transactionId, ev.tradeDate, ev.quantity, available);

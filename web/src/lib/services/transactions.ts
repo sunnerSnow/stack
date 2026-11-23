@@ -251,6 +251,31 @@ export async function correctTransaction(
   }).catch(mapReversalConflict);
 }
 
+/**
+ * 匯入用：在呼叫端的資料庫交易裡依序寫入多筆（呼叫端要先鎖帳戶），最後每個持倉只重建一次。
+ * 同一個資料庫交易裡 now() 都一樣，所以建立時間依檔案順序遞增 1 毫秒：
+ * 同一天、同一檔的多個買進批次（例如當沖買進與一般買進）會照檔案順序被 FIFO 消耗。
+ */
+export async function insertTransactionsInTx(
+  tx: Tx,
+  userId: string,
+  accountId: string,
+  inputs: (NormalizedTransaction & { importRowId?: string })[],
+): Promise<string[]> {
+  const account = (await lockAccounts(tx, userId, [accountId])).get(accountId);
+  if (!account) throw notFound("帳戶");
+  const start = Date.now();
+  const ids: string[] = [];
+  const keys = new Map<string, PositionKey>();
+  for (const [i, input] of inputs.entries()) {
+    const { id, position } = await insertTransaction(tx, userId, account, input, { createdAt: new Date(start + i).toISOString(), importRowId: input.importRowId });
+    ids.push(id);
+    if (position) keys.set(`${position.accountId}:${position.assetId}`, position);
+  }
+  for (const key of keys.values()) await rebuildPositions(tx, userId, key, { changedIds: ids, context: "匯入之後" });
+  return ids;
+}
+
 /** 兩個請求同時沖銷同一筆：帳戶鎖會讓它們依序執行，唯一索引是最後一道防線 */
 function mapReversalConflict(error: unknown): never {
   if (isUniqueViolation(error, REVERSAL_UNIQUE)) throw alreadyReversed();
@@ -317,6 +342,7 @@ async function insertTransaction(
   userId: string,
   account: AccountRow,
   input: NormalizedTransaction,
+  opts: { createdAt?: string; importRowId?: string } = {},
 ): Promise<{ id: string; position: PositionKey | null }> {
   const [{ baseCurrency }] = await tx
     .select({ baseCurrency: portfolios.baseCurrency })
@@ -398,6 +424,8 @@ async function insertTransaction(
       clientRequestId: input.clientRequestId,
       dayTrade: input.dayTrade,
       costEstimate: estimate.fee || estimate.tax ? estimate : null,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
+      ...(opts.importRowId ? { source: "import" as const, importRowId: opts.importRowId } : {}),
     })
     .returning({ id: transactions.id });
 
@@ -533,6 +561,7 @@ async function rebuildPositions(
       tax: transactions.tax,
       otherCost: transactions.otherCost,
       currency: transactions.currency,
+      dayTrade: transactions.dayTrade,
     })
     .from(transactions)
     .where(
@@ -540,14 +569,15 @@ async function rebuildPositions(
         eq(transactions.userId, userId),
         eq(transactions.accountId, accountId),
         eq(transactions.assetId, assetId),
-        inArray(transactions.transactionType, ["buy", "sell"]),
+        inArray(transactions.transactionType, ["buy", "sell", "transfer_in"]),
         isEffectiveTransaction(),
       ),
     );
 
+  // 轉入持股跟買進一樣開一個批次（成本＝股數 × 平均成本）
   const events: TradeEvent[] = rows.map((r) => ({
     transactionId: r.id,
-    type: r.type as "buy" | "sell",
+    type: r.type === "sell" ? "sell" : "buy",
     tradeDate: r.tradeDate,
     tradeAt: r.tradeAt,
     createdAt: r.createdAt ?? "",
@@ -557,6 +587,8 @@ async function rebuildPositions(
     tax: dec(r.tax),
     otherCost: dec(r.otherCost),
     currency: r.currency,
+    dayTrade: r.dayTrade,
+    transferIn: r.type === "transfer_in",
   }));
 
   let result: ReturnType<typeof replayFifo>;

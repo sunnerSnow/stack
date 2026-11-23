@@ -4,9 +4,9 @@ import { type Dec, ZERO } from "@/lib/money/decimal";
  * 交易類型的持倉與現金效果規則（唯一來源）。
  * 使用者輸入的金額一律是正數，正負號只由這裡決定，前端不能自己決定。
  *
- * 目前開放下列九種；schema 已預留轉帳、分割、調整等類型，之後的 Phase 再開。
+ * 目前開放下列十種；schema 已預留轉出、分割、調整等類型，之後的 Phase 再開。
  */
-export const PHASE1_TYPES = ["buy", "sell", "deposit", "withdrawal", "dividend", "interest", "fee", "tax", "fee_rebate"] as const;
+export const PHASE1_TYPES = ["buy", "sell", "transfer_in", "deposit", "withdrawal", "dividend", "interest", "fee", "tax", "fee_rebate"] as const;
 export type Phase1Type = (typeof PHASE1_TYPES)[number];
 
 /**
@@ -37,6 +37,9 @@ export interface TransactionRule {
 export const TRANSACTION_RULES: Record<Phase1Type, TransactionRule> = {
   buy: { label: "買進", asset: "required", trade: true, allowsCosts: true, taxKind: "transaction_tax", externalFlow: null, position: "open_lot" },
   sell: { label: "賣出", asset: "required", trade: true, allowsCosts: true, taxKind: "transaction_tax", externalFlow: null, position: "close_fifo" },
+  // 轉入持股：開始記帳前就持有、或從別的券商轉進來的股票。「單價」是平均成本，建立批次但不動現金；
+  // 對投資組合來說是從外面投入的資產（績效以轉入當天的市值當作投入）
+  transfer_in: { label: "轉入持股", asset: "required", trade: true, allowsCosts: false, taxKind: null, externalFlow: "contribution", position: "open_lot" },
   deposit: { label: "入金", asset: "forbidden", trade: false, allowsCosts: false, taxKind: null, externalFlow: "contribution", position: null },
   withdrawal: { label: "出金", asset: "forbidden", trade: false, allowsCosts: false, taxKind: null, externalFlow: "withdrawal", position: null },
   dividend: { label: "現金股息", asset: "required", trade: false, allowsCosts: true, taxKind: "withholding_tax", externalFlow: null, position: null },
@@ -64,6 +67,7 @@ export function totalCosts(a: Amounts): Dec {
  * - 賣出：現金增加「成交金額 − 手續費 − 交易稅 − 其他費用」
  * - 股息／利息：現金增加實際淨額
  * - 退佣：現金增加退回的金額
+ * - 轉入持股：不動現金
  */
 export function cashEffect(type: Phase1Type, a: Amounts): Dec {
   switch (type) {
@@ -80,6 +84,8 @@ export function cashEffect(type: Phase1Type, a: Amounts): Dec {
     case "fee":
     case "tax":
       return a.gross.negated();
+    case "transfer_in":
+      return ZERO;
   }
 }
 

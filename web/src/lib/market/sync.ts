@@ -217,7 +217,7 @@ async function tradedSharedAssets(db: Db): Promise<TradedAsset[]> {
            a.metadata->>'priceBackfillFrom' "backfilledFrom"
     from (
       select t.asset_id, t.trade_date first_date from stack.transactions t
-      where t.transaction_type in ('buy', 'sell') and t.reversal_of_id is null
+      where t.transaction_type in ('buy', 'sell', 'transfer_in') and t.reversal_of_id is null
         and not exists (select 1 from stack.transactions r where r.reversal_of_id = t.id)
       union all
       select ps.asset_id, s.as_of_date from stack.position_snapshots ps join stack.account_snapshots s on s.id = ps.snapshot_id

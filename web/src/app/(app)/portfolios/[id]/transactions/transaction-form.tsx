@@ -37,7 +37,7 @@ interface Props {
 }
 
 const TYPE_GROUPS: { label: string; types: Phase1Type[] }[] = [
-  { label: "買賣", types: ["buy", "sell"] },
+  { label: "買賣與轉入", types: ["buy", "sell", "transfer_in"] },
   { label: "資金進出", types: ["deposit", "withdrawal"] },
   { label: "收入", types: ["dividend", "interest"] },
   { label: "費用與退佣", types: ["fee", "tax", "fee_rebate"] },
@@ -125,6 +125,11 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             </div>
           ))}
         </div>
+        {type === "transfer_in" ? (
+          <p className="mt-2 text-xs leading-relaxed text-ink-2">
+            開始記帳前就持有、或從別的券商轉進來的股票：填股數與每股平均成本，建立持倉批次，不動現金。之後的賣出依 FIFO 用這個成本算已實現損益；績效以轉入當天的市值當作投入。
+          </p>
+        ) : null}
         {type === "fee_rebate" ? (
           <p className="mt-2 text-xs leading-relaxed text-ink-2">
             券商退回的手續費（例如每月退佣），填實際入帳的金額。退佣不是外部入金，會算進損益。月退的帳戶，手續費折扣請設成「不打折」，每筆照原價估算，退佣入帳時再記這一筆。
@@ -245,12 +250,12 @@ export function TransactionForm({ portfolioId, today, accounts, initial = {}, co
             {err("quantity") ? <span className="field-error">{err("quantity")}</span> : null}
           </label>
           <label className="field">
-            <span>單價</span>
+            <span>{type === "transfer_in" ? "平均成本（每股）" : "單價"}</span>
             <input className="input num" name="unitPrice" inputMode="decimal" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value.trim())} placeholder="100" aria-invalid={invalid("unitPrice")} />
             {err("unitPrice") ? <span className="field-error">{err("unitPrice")}</span> : null}
           </label>
           <div className="field">
-            <span>成交金額</span>
+            <span>{type === "transfer_in" ? "持倉成本" : "成交金額"}</span>
             <p className="input num border-dashed bg-cream">{gross ? formatDecimal(gross, { maxFraction: 4 }) : "—"}</p>
           </div>
         </div>
