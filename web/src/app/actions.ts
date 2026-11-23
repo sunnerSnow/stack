@@ -15,6 +15,7 @@ import { isPhase1Type, TRANSACTION_RULES } from "@/lib/ledger/rules";
 import { setPortfolioBenchmark } from "@/lib/services/benchmarks";
 import { createTdccImport } from "@/lib/services/imports";
 import { createAccount, createPortfolio, listAccounts, updateAccountFees } from "@/lib/services/portfolios";
+import { generateHoldingReport } from "@/lib/services/research";
 import { createSnapshot } from "@/lib/services/snapshots";
 import { confirmTradeImport, createTradeImport, getTradeImport } from "@/lib/services/trade-imports";
 import { correctTransaction, postTransaction, reverseTransaction } from "@/lib/services/transactions";
@@ -328,5 +329,24 @@ export async function reverseTransactionAction(portfolioId: string, transactionI
     return toFormState(error);
   }
   revalidatePath(`/portfolios/${portfolioId}`);
+  redirect(target);
+}
+
+// ---------------------------------------------------------------------------
+// AI 研究
+// ---------------------------------------------------------------------------
+
+/** 產生一份持股研究摘要（呼叫 AI，約需數十秒）；成功或失敗都會存成一份，轉到那一份 */
+export async function generateResearchAction(portfolioId: string, assetId: string, _state: FormState, _formData: FormData): Promise<FormState> {
+  const user = await sessionOrRedirect();
+  let target: string;
+  try {
+    const db = await getDb();
+    const { id } = await generateHoldingReport(db, user.id, portfolioId, assetId);
+    target = `/portfolios/${portfolioId}/holdings/${assetId}?report=${id}`;
+  } catch (error) {
+    return toFormState(error);
+  }
+  revalidatePath(`/portfolios/${portfolioId}/holdings/${assetId}`);
   redirect(target);
 }

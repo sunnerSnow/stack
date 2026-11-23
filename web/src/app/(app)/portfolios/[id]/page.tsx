@@ -279,7 +279,9 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     return (
                       <tr key={`${h.accountId}:${h.assetId}`}>
                         <td>
-                          <span className="font-bold num">{h.symbol}</span> <span className="text-ink-2">{h.name}</span>
+                          <Link href={`/portfolios/${id}/holdings/${h.assetId}`} className="hover:underline" title="持股明細與 AI 研究摘要">
+                            <span className="font-bold num">{h.symbol}</span> <span className="text-ink-2">{h.name}</span>
+                          </Link>
                           <span className="tag ml-2">{MARKET_LABEL[h.market] ?? h.market}</span>
                         </td>
                         <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>
@@ -309,7 +311,9 @@ export default async function PortfolioPage({ params, searchParams }: PageProps<
                     return (
                       <tr key={`${h.accountId}:${h.asset.id}`}>
                         <td>
-                          <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
+                          <Link href={`/portfolios/${id}/holdings/${h.asset.id}`} className="hover:underline" title="持股明細與 AI 研究摘要">
+                            <span className="font-bold num">{h.asset.symbol}</span> <span className="text-ink-2">{h.asset.name}</span>
+                          </Link>
                           <span className="tag ml-2">{MARKET_LABEL[h.asset.market] ?? h.asset.market}</span>
                         </td>
                         <td className="text-ink-2 whitespace-nowrap">{h.accountName}</td>

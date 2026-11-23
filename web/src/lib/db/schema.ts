@@ -347,6 +347,26 @@ export const marketGroupDaily = stack.table("market_group_daily", {
   calcVersion: text("calc_version").notNull(),
 });
 
+/** AI 研究報告（20261124000000_ai_research_reports.sql）：只能新增，保存輸入快照與模型版本 */
+export const aiResearchReports = stack.table("ai_research_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  portfolioId: uuid("portfolio_id").notNull(),
+  assetId: uuid("asset_id").notNull(),
+  scope: text("scope", { enum: ["holding"] }).notNull(),
+  status: text("status", { enum: ["completed", "failed"] }).notNull(),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  inputVersion: text("input_version").notNull(),
+  inputHash: text("input_hash").notNull(),
+  inputSnapshot: jsonb("input_snapshot").notNull(),
+  content: jsonb("content"),
+  validation: jsonb("validation").notNull().default({}),
+  usage: jsonb("usage").notNull().default({}),
+  error: text("error"),
+  createdAt: createdAt(),
+});
+
 export const schema = {
   marketDaily,
   marketExRights,
@@ -373,4 +393,5 @@ export const schema = {
   importRows,
   accountSnapshots,
   positionSnapshots,
+  aiResearchReports,
 };
